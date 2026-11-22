@@ -8,9 +8,9 @@ A suite of lightweight, zero-dependency UserScripts to export chat sessions from
 
 | Platform | Script | Target URL | Integration Point |
 | :--- | :--- | :--- | :--- |
-| **Google Gemini** | [`gemini-markdown-exporter.user.js`](./gemini-markdown-exporter.user.js) | `gemini.google.com` | Top-bar menu & composer toolbar |
-| **Google Search AI Mode** | [`google-ai-mode-exporter.user.js`](./google-ai-mode-exporter.user.js) | `google.com/search` | Floating / native presentation toolbar |
-| **Vertex AI Search** | [`vertex-ai-search-markdown-exporter.user.js`](./vertex-ai-search-markdown-exporter.user.js) | `vertexaisearch.cloud.google` | Session header menu under "Export as JSON" |
+| **Google Gemini** | [`gemini-markdown-exporter.user.js`](./gemini-markdown-exporter.user.js) | `gemini.google.com` | Composer toolbar & top menu |
+| **Google Search AI Mode** | [`google-ai-mode-exporter.user.js`](./google-ai-mode-exporter.user.js) | `google.com/search` | Composer toolbar |
+| **Vertex AI Search** | [`vertex-ai-search-markdown-exporter.user.js`](./vertex-ai-search-markdown-exporter.user.js) | `vertexaisearch.cloud.google` | Top menu |
 
 ---
 
