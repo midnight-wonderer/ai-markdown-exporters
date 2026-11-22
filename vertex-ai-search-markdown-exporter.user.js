@@ -68,12 +68,12 @@
         const seenUris = new Set();
 
         if (Array.isArray(t.reply?.answer?.segments)) {
-          const segTexts = [];
+          let rawText = '';
           for (const s of t.reply.answer.segments) {
             if (s.text) {
-              // Strip internal orchestration tokens like [[section:...]]
-              const cleanText = s.text.replace(/\[\[section:[^\]]+\]\]/g, '').trim();
-              if (cleanText) segTexts.push(cleanText);
+              // Segments are consecutive slices of the markdown response split at citation boundaries.
+              // They MUST be concatenated directly without inserting artificial newlines.
+              rawText += s.text;
             }
             if (Array.isArray(s.references)) {
               for (const ref of s.references) {
@@ -87,11 +87,14 @@
               }
             }
           }
-          assistant = segTexts.join('\n\n');
+          assistant = rawText
+            .replace(/\[\[section:[^\]]+\]\]/g, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
         } else if (typeof t.reply?.answer === 'string') {
-          assistant = t.reply.answer.replace(/\[\[section:[^\]]+\]\]/g, '').trim();
+          assistant = t.reply.answer.replace(/\[\[section:[^\]]+\]\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
         } else if (t.reply?.answer?.raw) {
-          assistant = t.reply.answer.raw.replace(/\[\[section:[^\]]+\]\]/g, '').trim();
+          assistant = t.reply.answer.raw.replace(/\[\[section:[^\]]+\]\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
         }
 
         if (user || assistant) {

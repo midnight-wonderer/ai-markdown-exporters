@@ -95,8 +95,14 @@
       if (tag === 'del' || tag === 's') return `~~${this.processChildren(el, indentLevel)}~~`;
       if (tag === 'mark') return `==${this.processChildren(el, indentLevel)}==`;
       if (tag === 'u') return `<u>${this.processChildren(el, indentLevel)}</u>`;
-      if (tag === 'sub') return `<sub>${this.processChildren(el, indentLevel)}</sub>`;
-      if (tag === 'sup') return `<sup>${this.processChildren(el, indentLevel)}</sup>`;
+      if (tag === 'sub') {
+        const text = this.processChildren(el, indentLevel).trim();
+        return text ? `<sub>${text}</sub>` : '';
+      }
+      if (tag === 'sup') {
+        const text = this.processChildren(el, indentLevel).trim();
+        return text ? `<sup>${text}</sup>` : '';
+      }
 
       // 7. Blockquotes
       if (tag === 'blockquote') {
@@ -264,7 +270,11 @@
     let chatTitle = 'Gemini Conversation';
     const titleEl = document.querySelector('title, [data-test-id="conversation-title"], .conversation-title');
     if (titleEl && titleEl.textContent) {
-      chatTitle = titleEl.textContent.replace(/ - Gemini$/, '').replace(/Gemini - /, '').trim();
+      chatTitle = titleEl.textContent
+        .replace(/\s*-\s*Google Gemini$/i, '')
+        .replace(/\s*-\s*Gemini$/i, '')
+        .replace(/^Gemini\s*-\s*/i, '')
+        .trim();
     }
 
     let containers = Array.from(document.querySelectorAll('.conversation-container'));

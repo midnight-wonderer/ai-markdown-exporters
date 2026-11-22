@@ -42,6 +42,58 @@
   };
 
   /**
+   * Detect and extract LaTeX from math containers (Google uses data-xpm-latex or data-math).
+   */
+  function tryExtractMath(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return null;
+
+    // 1. Element itself has data-xpm-latex or data-math
+    if (node.hasAttribute('data-xpm-latex') || node.hasAttribute('data-math')) {
+      const tex = (node.getAttribute('data-xpm-latex') || node.getAttribute('data-math') || '').trim();
+      if (!tex) return null;
+      const isBlock = node.parentElement && (
+        node.parentElement.tagName.toLowerCase() === 'div' ||
+        node.parentElement.classList.contains('display-math') ||
+        (node.parentElement.getAttribute('role') === 'math' && node.parentElement.tagName.toLowerCase() === 'div')
+      );
+      return isBlock ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`;
+    }
+
+    // 2. KaTeX annotation
+    if (node.tagName.toLowerCase() === 'annotation' && node.getAttribute('encoding') === 'application/x-tex') {
+      const tex = node.textContent.trim();
+      return tex ? `$${tex}$` : null;
+    }
+
+    // 3. Container wrapping a math element (e.g. <span> or <div> containing <img data-xpm-latex="...">)
+    const mathChild = node.querySelector ? node.querySelector('[data-xpm-latex], [data-math], annotation[encoding="application/x-tex"]') : null;
+    if (mathChild) {
+      // Ensure node is the direct math container wrapper, NOT a whole section, paragraph, or table
+      const tag = node.tagName.toLowerCase();
+      const isContainer = (
+        node.getAttribute('role') === 'math' ||
+        mathChild.parentElement === node ||
+        (mathChild.parentElement?.parentElement === node && node.children.length <= 4)
+      ) && !node.querySelector('p, h1, h2, h3, h4, h5, h6, table, pre, ul, ol');
+
+      if (isContainer) {
+        const tex = (
+          mathChild.getAttribute('data-xpm-latex') ||
+          mathChild.getAttribute('data-math') ||
+          mathChild.textContent ||
+          ''
+        ).trim();
+        if (!tex) return null;
+
+        const isBlock = tag === 'div' || node.parentElement?.tagName.toLowerCase() === 'div';
+        return isBlock ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Convert an HTML DOM node into clean Markdown recursively.
    */
   function domToMarkdown(node) {
@@ -55,6 +107,12 @@
     // Element node
     if (node.nodeType !== Node.ELEMENT_NODE) {
       return '';
+    }
+
+    // Intercept LaTeX Math before filtering ignoredElements (Google marks math <img> with aria-hidden="true")
+    const mathMd = tryExtractMath(node);
+    if (mathMd !== null) {
+      return mathMd;
     }
 
     // Filter out scripts, styles, UI chrome & ignored elements
@@ -264,12 +322,21 @@
           href = u.searchParams.get('q') || u.searchParams.get('url') || href;
         } catch (_) {}
       }
-      if (
-        href.includes('google.com/search') ||
-        href.includes('myadcenter') ||
-        href.includes('/preferences') ||
-        href.includes('/history')
-      ) {
+      // Filter out internal Google domains, support/policy pages, and settings links
+      try {
+        const parsed = new URL(href, window.location.origin);
+        const host = parsed.hostname.toLowerCase();
+        if (
+          host.endsWith('google.com') ||
+          host.endsWith('googleusercontent.com') ||
+          host.endsWith('gstatic.com') ||
+          href.includes('myadcenter') ||
+          href.includes('/preferences') ||
+          href.includes('/history')
+        ) {
+          continue;
+        }
+      } catch (_) {
         continue;
       }
       if (a.closest('button, [role="button"], [role="menu"]')) continue;
@@ -298,8 +365,11 @@
 
     // Document title and metadata
     const firstQNode = userQueries[0];
-    const firstQ = firstQNode?.textContent.replace(/\s+/g, ' ').trim() || 'Google AI Mode Session';
-    const pageTitle = document.title.replace(/ - Google Search$/, '').trim() || firstQ;
+    const firstQText = (firstQNode?.innerText || firstQNode?.textContent || '')
+      .replace(/^You said:\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim() || 'Google AI Mode Session';
+    const pageTitle = document.title.replace(/ - Google Search$/, '').trim() || firstQText;
     const timestamp = new Date().toISOString();
     const url = window.location.href;
 
@@ -313,7 +383,17 @@
     for (let i = 0; i < totalTurns; i++) {
       // User question
       if (i < userQueries.length) {
-        const qText = userQueries[i].textContent.replace(/\s+/g, ' ').trim();
+        const userNode = userQueries[i];
+        const rawText = userNode.textContent?.includes('\n')
+          ? userNode.textContent
+          : (userNode.innerText || userNode.textContent || '');
+
+        const qText = rawText
+          .replace(/\r\n/g, '\n')
+          .replace(/^You said:\s*/i, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+
         if (qText) {
           doc += `## User\n\n${qText}\n\n---\n\n`;
         }
