@@ -30,29 +30,80 @@
   }
 
   // 2. Extract turns from <ucs-conversation> (memory state + Shadow DOM fallback)
-  function extractTurns() {
+  function extractConversationData() {
     const conv = findElementDeep('ucs-conversation');
     if (!conv) return null;
 
     const turns = [];
+    let modelId = '';
+    let sessionId = '';
 
     // Approach A: Read in-memory .turns property on <ucs-conversation>
     if (Array.isArray(conv.turns) && conv.turns.length > 0) {
       for (const t of conv.turns) {
         const user = t.query?.text || t.query?.parts?.map(p => p.text).join('') || '';
-        let assistant = '';
-        if (t.reply?.answer?.segments) {
-          assistant = t.reply.answer.segments.map(s => s.text || '').join('\n\n');
-        } else if (typeof t.reply?.answer === 'string') {
-          assistant = t.reply.answer;
-        } else if (t.reply?.answer?.raw) {
-          assistant = t.reply.answer.raw;
+
+        // Extract model and session metadata if present
+        if (!modelId && t.reply?.queryConfig?.modelId) {
+          modelId = t.reply.queryConfig.modelId;
         }
+        if (!sessionId && t.reply?.session) {
+          sessionId = t.reply.session.split('/').pop();
+        }
+
+        // Extract reasoning / thought process
+        let thought = '';
+        if (Array.isArray(t.reply?.answer?.rawThoughts) && t.reply.answer.rawThoughts.length > 0) {
+          thought = t.reply.answer.rawThoughts.join('\n\n').trim();
+        } else if (Array.isArray(t.reply?.answer?.summaryThoughts) && t.reply.answer.summaryThoughts.length > 0) {
+          thought = t.reply.answer.summaryThoughts
+            .map(st => (st.title ? `**${st.title}**\n${st.summary || ''}` : st.summary || ''))
+            .filter(Boolean)
+            .join('\n\n').trim();
+        }
+
+        // Extract assistant text and collect references
+        let assistant = '';
+        const references = [];
+        const seenUris = new Set();
+
+        if (Array.isArray(t.reply?.answer?.segments)) {
+          const segTexts = [];
+          for (const s of t.reply.answer.segments) {
+            if (s.text) {
+              // Strip internal orchestration tokens like [[section:...]]
+              const cleanText = s.text.replace(/\[\[section:[^\]]+\]\]/g, '').trim();
+              if (cleanText) segTexts.push(cleanText);
+            }
+            if (Array.isArray(s.references)) {
+              for (const ref of s.references) {
+                if (ref?.uri && !seenUris.has(ref.uri)) {
+                  seenUris.add(ref.uri);
+                  references.push({
+                    title: ref.title || ref.domain || ref.uri,
+                    uri: ref.uri
+                  });
+                }
+              }
+            }
+          }
+          assistant = segTexts.join('\n\n');
+        } else if (typeof t.reply?.answer === 'string') {
+          assistant = t.reply.answer.replace(/\[\[section:[^\]]+\]\]/g, '').trim();
+        } else if (t.reply?.answer?.raw) {
+          assistant = t.reply.answer.raw.replace(/\[\[section:[^\]]+\]\]/g, '').trim();
+        }
+
         if (user || assistant) {
-          turns.push({ user: user.trim(), assistant: assistant.trim() });
+          turns.push({
+            user: user.trim(),
+            assistant: assistant.trim(),
+            thought: thought.trim(),
+            sources: references
+          });
         }
       }
-      if (turns.length > 0) return turns;
+      if (turns.length > 0) return { turns, modelId, sessionId };
     }
 
     // Approach B: Deep Shadow DOM traversal on .turn containers
@@ -70,38 +121,60 @@
         }
 
         if (user || assistant) {
-          turns.push({ user: user.trim(), assistant: assistant.trim() });
+          turns.push({
+            user: user.trim(),
+            assistant: assistant.trim(),
+            thought: '',
+            sources: []
+          });
         }
       }
     }
 
-    return turns;
+    return { turns, modelId, sessionId };
   }
 
-  // 3. Format as clean Markdown document
-  function generateMarkdown(turns) {
+  // 3. Format as clean Markdown document adhering to unified standard
+  function generateMarkdown({ turns, modelId, sessionId }) {
     const url = window.location.href;
     const sessionMatch = url.match(/\/session\/([^\/?#]+)/);
-    const sessionId = sessionMatch ? sessionMatch[1] : 'unknown';
-    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const resolvedSessionId = sessionId || (sessionMatch ? sessionMatch[1] : 'unknown');
+    const timestamp = new Date().toISOString();
 
-    let doc = `# Vertex AI Search Chat Session\n\n`;
-    doc += `- **Session ID**: \`${sessionId}\`\n`;
-    doc += `- **Export Date**: ${timestamp}\n`;
-    doc += `- **Source URL**: [Link](${url})\n\n`;
+    let doc = `---\n`;
+    doc += `title: "Vertex AI Search Chat Session"\n`;
+    doc += `source: "vertex-ai-search"\n`;
+    if (modelId) {
+      doc += `model: ${JSON.stringify(modelId)}\n`;
+    }
+    doc += `session_id: ${JSON.stringify(resolvedSessionId)}\n`;
+    doc += `exported_at: "${timestamp}"\n`;
+    doc += `url: "${url}"\n`;
     doc += `---\n\n`;
 
     for (const t of turns) {
       if (t.user) {
-        doc += `### 👤 User\n\n${t.user}\n\n`;
+        doc += `## User\n\n${t.user}\n\n---\n\n`;
       }
       if (t.assistant) {
-        doc += `### 🤖 Assistant\n\n${t.assistant}\n\n`;
+        doc += `## Assistant\n\n`;
+        if (t.thought) {
+          doc += `<details data-type="thought">\n<summary>Thought Process</summary>\n\n${t.thought}\n\n</details>\n\n`;
+        }
+        doc += `${t.assistant}\n\n`;
+
+        if (Array.isArray(t.sources) && t.sources.length > 0) {
+          doc += `### Sources\n\n`;
+          t.sources.forEach((s, idx) => {
+            doc += `${idx + 1}. [${s.title}](${s.uri})\n`;
+          });
+          doc += `\n`;
+        }
+        doc += `---\n\n`;
       }
-      doc += `---\n\n`;
     }
 
-    return doc;
+    return doc.replace(/\n{3,}/g, '\n\n').trim() + '\n';
   }
 
   // 4. Download file helper
@@ -173,16 +246,17 @@
       // Close the menu
       menu.open = false;
 
-      const turns = extractTurns();
-      if (!turns || turns.length === 0) {
+      const data = extractConversationData();
+      if (!data || !data.turns || data.turns.length === 0) {
         alert('Could not find conversation turns. Make sure the chat session has loaded.');
         return;
       }
 
       const sessionMatch = window.location.href.match(/\/session\/([^\/?#]+)/);
-      const sessionId = sessionMatch ? sessionMatch[1] : 'session';
-      const doc = generateMarkdown(turns);
-      downloadMarkdown(`vertex-search-${sessionId.slice(0, 8)}.md`, doc);
+      const sessionId = data.sessionId || (sessionMatch ? sessionMatch[1] : 'session');
+      const doc = generateMarkdown(data);
+      const dateSlug = new Date().toISOString().slice(0, 10);
+      downloadMarkdown(`vertex-search_${sessionId.slice(0, 10)}_${dateSlug}.md`, doc);
     });
 
     // Insert immediately below "Export as JSON"

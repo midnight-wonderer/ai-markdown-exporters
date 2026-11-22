@@ -72,8 +72,9 @@
     // Headings: W3C role="heading" or h1-h6
     const role = node.getAttribute('role');
     if (role === 'heading' || /^h[1-6]$/.test(tag)) {
-      const ariaLevel = parseInt(node.getAttribute('aria-level') || (tag.startsWith('h') ? tag[1] : '3'), 10);
-      const level = Math.min(Math.max(ariaLevel, 1), 6);
+      const rawLevel = parseInt(node.getAttribute('aria-level') || (tag.startsWith('h') ? tag[1] : '3'), 10);
+      // Clamp heading level to between 3 and 6 so inner headings never collide with ## User / ## Assistant
+      const level = Math.min(Math.max(rawLevel >= 3 ? rawLevel : rawLevel + 2, 3), 6);
       const hashes = '#'.repeat(level);
       const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
       return text ? `\n\n${hashes} ${text}\n\n` : '';
@@ -241,6 +242,47 @@
   }
 
   /**
+   * Extract unique outbound citation sources using unminified functional heuristics.
+   */
+  function extractOutboundSources(respNode) {
+    const sources = [];
+    const seen = new Set();
+    const anchors = Array.from(respNode.querySelectorAll('a[href]'));
+
+    for (const a of anchors) {
+      let href = a.getAttribute('href') || '';
+      const text = a.textContent.replace(/\s+/g, ' ').trim();
+
+      // Must have substantive visible text (filters out icons, tracking pixels, and empty chips)
+      if (!text || text.length < 2) continue;
+
+      // Filter out internal anchors, javascript calls, and google action/settings links
+      if (href.startsWith('#') || href.startsWith('javascript:')) continue;
+      if (href.startsWith('/url?') || href.includes('google.com/url?')) {
+        try {
+          const u = new URL(href, window.location.origin);
+          href = u.searchParams.get('q') || u.searchParams.get('url') || href;
+        } catch (_) {}
+      }
+      if (
+        href.includes('google.com/search') ||
+        href.includes('myadcenter') ||
+        href.includes('/preferences') ||
+        href.includes('/history')
+      ) {
+        continue;
+      }
+      if (a.closest('button, [role="button"], [role="menu"]')) continue;
+
+      if (!seen.has(href)) {
+        seen.add(href);
+        sources.push({ title: text, url: href });
+      }
+    }
+    return sources;
+  }
+
+  /**
    * Extract all conversation turns purely using unminified semantic attributes.
    */
   function extractConversation() {
@@ -254,16 +296,26 @@
     const totalTurns = Math.max(userQueries.length, responses.length);
     if (totalTurns === 0) return '';
 
-    const mdTurns = [];
+    // Document title and metadata
+    const firstQNode = userQueries[0];
+    const firstQ = firstQNode?.textContent.replace(/\s+/g, ' ').trim() || 'Google AI Mode Session';
+    const pageTitle = document.title.replace(/ - Google Search$/, '').trim() || firstQ;
+    const timestamp = new Date().toISOString();
+    const url = window.location.href;
+
+    let doc = `---\n`;
+    doc += `title: ${JSON.stringify(pageTitle)}\n`;
+    doc += `source: "google-ai-mode"\n`;
+    doc += `exported_at: "${timestamp}"\n`;
+    doc += `url: "${url}"\n`;
+    doc += `---\n\n`;
 
     for (let i = 0; i < totalTurns; i++) {
-      const lines = [];
-
       // User question
       if (i < userQueries.length) {
         const qText = userQueries[i].textContent.replace(/\s+/g, ' ').trim();
         if (qText) {
-          lines.push(`## User\n\n${qText}\n`);
+          doc += `## User\n\n${qText}\n\n---\n\n`;
         }
       }
 
@@ -284,18 +336,26 @@
           }
         }
 
-        const fullRespMd = turnBlocks.join('\n\n');
+        let fullRespMd = turnBlocks.join('\n\n').trim();
         if (fullRespMd) {
-          lines.push(`## AI\n\n${fullRespMd}\n`);
-        }
-      }
+          doc += `## Assistant\n\n${fullRespMd}\n\n`;
 
-      if (lines.length > 0) {
-        mdTurns.push(lines.join('\n'));
+          // Extract citation sources
+          const sources = extractOutboundSources(respNode);
+          if (sources.length > 0) {
+            doc += `### Sources\n\n`;
+            sources.forEach((s, idx) => {
+              doc += `${idx + 1}. [${s.title}](${s.url})\n`;
+            });
+            doc += `\n`;
+          }
+
+          doc += `---\n\n`;
+        }
       }
     }
 
-    return mdTurns.join('\n---\n\n');
+    return doc.replace(/\n{3,}/g, '\n\n').trim() + '\n';
   }
 
   /**
@@ -358,9 +418,10 @@
     // Download .md file
     const allUserHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery));
     const firstQNode = allUserHeadings.find((h) => !h.closest(SELECTORS.responseContainer));
-    const firstQ = firstQNode?.textContent.trim() || 'google-ai-chat';
+    const firstQ = firstQNode?.textContent.trim() || 'chat';
     const cleanName = firstQ.slice(0, 30).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `${cleanName}_${Date.now()}.md`;
+    const dateSlug = new Date().toISOString().slice(0, 10);
+    const filename = `google-ai-mode_${cleanName}_${dateSlug}.md`;
 
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);

@@ -74,9 +74,10 @@
         return `\`${el.textContent}\``;
       }
 
-      // 4. Headings
+      // 4. Headings (clamped between 3 and 6 so inner headings never collide with ## User / ## Assistant)
       if (/^h[1-6]$/.test(tag)) {
-        const level = parseInt(tag[1], 10);
+        const parsedLevel = parseInt(tag[1], 10);
+        const level = Math.min(Math.max(parsedLevel >= 3 ? parsedLevel : parsedLevel + 2, 3), 6);
         const prefix = '#'.repeat(level);
         const content = this.processChildren(el, indentLevel).trim();
         return `\n\n${prefix} ${content}\n\n`;
@@ -227,6 +228,36 @@
   // 2. CONVERSATION EXTRACTION & DOWNLOAD
   // =========================================================================
 
+  function extractGeminiSources(mrEl) {
+    const sources = [];
+    const seen = new Set();
+    const sourceContainers = mrEl.querySelectorAll(
+      'sources-list, .sources-list, [class*="sources"], .source-inline-chip-container, [data-test-id*="source"], [aria-label*="Source"]'
+    );
+    const searchScope = sourceContainers.length > 0 ? Array.from(sourceContainers) : [mrEl];
+
+    for (const container of searchScope) {
+      const anchors = container.querySelectorAll('a[href]');
+      for (const a of anchors) {
+        let href = a.getAttribute('href') || '';
+        const text = (a.getAttribute('aria-label') || a.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue;
+        if (href.startsWith('/url?') || href.includes('google.com/url?')) {
+          try {
+            const u = new URL(href, window.location.origin);
+            href = u.searchParams.get('q') || u.searchParams.get('url') || href;
+          } catch (_) {}
+        }
+        if (!text || text.length < 2) continue;
+        if (!seen.has(href)) {
+          seen.add(href);
+          sources.push({ title: text, url: href });
+        }
+      }
+    }
+    return sources;
+  }
+
   function downloadConversationAsMarkdown() {
     const converter = new GeminiMarkdownConverter();
 
@@ -247,7 +278,16 @@
       }
     }
 
-    let markdown = `# ${chatTitle}\n\n*Exported from Gemini on ${new Date().toLocaleString()}*\n\n---\n\n`;
+    const timestamp = new Date().toISOString();
+    const url = window.location.href;
+
+    let markdown = `---\n`;
+    markdown += `title: ${JSON.stringify(chatTitle)}\n`;
+    markdown += `source: "gemini"\n`;
+    markdown += `exported_at: "${timestamp}"\n`;
+    markdown += `url: "${url}"\n`;
+    markdown += `---\n\n`;
+
     let turnCount = 0;
 
     containers.forEach((item) => {
@@ -258,24 +298,36 @@
         const contentHolder = uqEl.querySelector('.query-text, .rendered-markdown-query, .query-content') || uqEl;
         const uqText = converter.convert(contentHolder).trim();
         if (uqText) {
-          markdown += `### User\n\n${uqText}\n\n`;
+          markdown += `## User\n\n${uqText}\n\n---\n\n`;
           turnCount++;
         }
       }
 
       if (mrEl) {
+        let assistantContent = '';
         const thinkingEl = mrEl.querySelector('thinking-overlay, .is-embedded-thought');
         if (thinkingEl && thinkingEl.textContent.trim()) {
           const thoughtText = converter.convert(thinkingEl).trim();
           if (thoughtText) {
-            markdown += `<details>\n<summary>Thinking Process</summary>\n\n${thoughtText}\n\n</details>\n\n`;
+            assistantContent += `<details data-type="thought">\n<summary>Thought Process</summary>\n\n${thoughtText}\n\n</details>\n\n`;
           }
         }
 
         const responseHolder = mrEl.querySelector('message-content .markdown, message-content, .model-response-text') || mrEl;
         const mrText = converter.convert(responseHolder).trim();
         if (mrText) {
-          markdown += `### Gemini\n\n${mrText}\n\n---\n\n`;
+          assistantContent += `${mrText}\n\n`;
+
+          const sources = extractGeminiSources(mrEl);
+          if (sources.length > 0) {
+            assistantContent += `### Sources\n\n`;
+            sources.forEach((s, idx) => {
+              assistantContent += `${idx + 1}. [${s.title}](${s.url})\n`;
+            });
+            assistantContent += `\n`;
+          }
+
+          markdown += `## Assistant\n\n${assistantContent}---\n\n`;
           turnCount++;
         }
       }
@@ -288,17 +340,18 @@
 
     markdown = markdown.replace(/\n{3,}/g, '\n\n').trim() + '\n';
     const safeTitle = chatTitle.replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, '_').substring(0, 50);
-    const filename = `${safeTitle || 'Gemini_Chat'}_${new Date().toISOString().slice(0, 10)}.md`;
+    const dateSlug = new Date().toISOString().slice(0, 10);
+    const filename = `gemini_${safeTitle || 'chat'}_${dateSlug}.md`;
 
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    const urlBlob = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = urlBlob;
     a.download = filename;
     document.documentElement.appendChild(a);
     a.click();
     document.documentElement.removeChild(a);
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(urlBlob);
   }
 
   // =========================================================================
