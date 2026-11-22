@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name         Gemini Chat Markdown Exporter
-// @namespace    https://gemini.google.com/
-// @version      2.0.0
-// @description  Adds a native "Export as Markdown" action to Gemini's top-bar conversation menu.
-// @author       Antigravity
+// @namespace    https://github.com/midnight-wonderer/
+// @version      1.0.0
+// @description  Adds "Export as Markdown" action to Gemini.
 // @match        https://gemini.google.com/*
 // @grant        none
 // @run-at       document-idle
@@ -252,7 +251,7 @@
           try {
             const u = new URL(href, window.location.origin);
             href = u.searchParams.get('q') || u.searchParams.get('url') || href;
-          } catch (_) {}
+          } catch (_) { }
         }
         if (!text || text.length < 2) continue;
         if (!seen.has(href)) {

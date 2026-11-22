@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google AI Mode Markdown Exporter
-// @namespace    https://github.com/
-// @version      1.8.0
-// @description  Export Google Search AI Mode / Gemini chat sessions to clean Markdown
+// @namespace    https://github.com/midnight-wonderer/
+// @version      1.0.0
+// @description  Export Google Search AI Mode as Markdown
 // @match        https://*.google.com/search*
 // @grant        GM_setClipboard
 // @grant        GM_download
@@ -238,7 +238,7 @@
         try {
           const u = new URL(href, window.location.origin);
           href = u.searchParams.get('q') || u.searchParams.get('url') || href;
-        } catch (_) {}
+        } catch (_) { }
       }
       return `[${text}](${href})`;
     }
@@ -320,7 +320,7 @@
         try {
           const u = new URL(href, window.location.origin);
           href = u.searchParams.get('q') || u.searchParams.get('url') || href;
-        } catch (_) {}
+        } catch (_) { }
       }
       // Filter out internal Google domains, support/policy pages, and settings links
       try {

@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Vertex AI Search - Markdown Exporter
-// @namespace    https://vertexaisearch.cloud.google/
-// @version      2.1
-// @description  Adds "Export as Markdown" under "Export as JSON" in the Vertex AI Search chat session header menu
-// @match        https://vertexaisearch.cloud.google/*
+// @name         Gemini Enterprise (Vertex AI Search) Markdown Exporter
+// @namespace    https://github.com/midnight-wonderer/
+// @version      1.0.0
+// @description  Adds "Export as Markdown" action to Gemini Enterprise.
+// @match        https://vertexaisearch.cloud.google.com/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
