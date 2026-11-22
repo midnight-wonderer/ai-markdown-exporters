@@ -5,7 +5,6 @@
 // @description  Export Google Search AI Mode as Markdown
 // @match        https://*.google.com/search*
 // @grant        GM_setClipboard
-// @grant        GM_download
 // @run-at       document-idle
 // ==/UserScript==
 
