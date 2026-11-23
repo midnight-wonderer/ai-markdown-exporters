@@ -352,22 +352,87 @@
    * Extract all conversation turns purely using unminified semantic attributes.
    */
   function extractConversation() {
-    const allUserHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery));
-    const userQueries = allUserHeadings.filter(
-      (h) => !h.closest(SELECTORS.responseContainer)
-    );
+    // 1. Initial query from URL param 'q' (verbatim source of truth for turn 0)
+    let initialQuery = '';
+    try {
+      initialQuery = new URL(window.location.href).searchParams.get('q') || '';
+    } catch (_) {}
 
-    const responses = Array.from(document.querySelectorAll(SELECTORS.responseContainer));
+    // 2. Identify the turn stream container
+    const turnRoot = document.querySelector('[data-xid="aim-mars-turn-root"]');
 
-    const totalTurns = Math.max(userQueries.length, responses.length);
-    if (totalTurns === 0) return '';
+    // 3. Collect responses: initial response is outside aim-mars-turn-root, follow-ups are inside it
+    const allResponses = Array.from(document.querySelectorAll(SELECTORS.responseContainer));
+    const initialResponse = allResponses.find((r) => !r.closest('[data-xid="aim-mars-turn-root"]')) || allResponses[0];
+    const followUpResponses = turnRoot
+      ? Array.from(turnRoot.querySelectorAll(SELECTORS.responseContainer))
+      : allResponses.slice(1);
+
+    // 4. Collect user queries
+    // Fallback for initial query if URL 'q' is empty
+    if (!initialQuery) {
+      const candidateHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery)).filter((h) => {
+        if (h.closest(SELECTORS.responseContainer)) return false;
+        if (h.closest('nav, aside, [aria-label*="history" i], [data-xid="aim-threads-view"], [data-xid="BVEPif"]')) return false;
+        if (turnRoot && h.closest('[data-xid="aim-mars-turn-root"]')) return false;
+        return true;
+      });
+      if (candidateHeadings.length > 0) {
+        let raw = (candidateHeadings[0].innerText || candidateHeadings[0].textContent || '')
+          .replace(/\r\n/g, '\n')
+          .replace(/^You said:\s*/i, '')
+          .trim();
+        // Remove duplicate repeated lines from screen-reader double rendering
+        const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+        if (lines.length === 2 && lines[0] === lines[1]) {
+          raw = lines[0];
+        }
+        initialQuery = raw;
+      }
+    }
+
+    // Follow-up user queries live strictly inside aim-mars-turn-root and outside responseContainer/sidebar
+    const followUpQueries = turnRoot
+      ? Array.from(turnRoot.querySelectorAll(SELECTORS.userQuery)).filter(
+          (h) => !h.closest(SELECTORS.responseContainer) && !h.closest('nav, aside, [aria-label*="history" i]')
+        )
+      : [];
+
+    // Assemble structured turns
+    const turns = [];
+
+    // Turn 0 (Initial turn)
+    if (initialQuery || initialResponse) {
+      turns.push({
+        userText: initialQuery.trim(),
+        respNode: initialResponse
+      });
+    }
+
+    // Follow-up turns (Turns 1..N)
+    const followUpCount = Math.max(followUpQueries.length, followUpResponses.length);
+    for (let i = 0; i < followUpCount; i++) {
+      const uNode = followUpQueries[i] || null;
+      let uText = '';
+      if (uNode) {
+        const raw = uNode.textContent?.includes('\n')
+          ? uNode.textContent
+          : (uNode.innerText || uNode.textContent || '');
+        uText = raw.replace(/\r\n/g, '\n').replace(/^You said:\s*/i, '').replace(/\n{3,}/g, '\n\n').trim();
+      }
+      const rNode = followUpResponses[i] || null;
+      if (uText || rNode) {
+        turns.push({
+          userText: uText,
+          respNode: rNode
+        });
+      }
+    }
+
+    if (turns.length === 0) return '';
 
     // Document title and metadata
-    const firstQNode = userQueries[0];
-    const firstQText = (firstQNode?.innerText || firstQNode?.textContent || '')
-      .replace(/^You said:\s*/i, '')
-      .replace(/\s+/g, ' ')
-      .trim() || 'Google AI Mode Session';
+    const firstQText = turns[0]?.userText || 'Google AI Mode Session';
     const pageTitle = document.title.replace(/ - Google Search$/, '').trim() || firstQText;
     const timestamp = new Date().toISOString();
     const url = window.location.href;
@@ -379,28 +444,13 @@
     doc += `url: "${url}"\n`;
     doc += `---\n\n`;
 
-    for (let i = 0; i < totalTurns; i++) {
-      // User question
-      if (i < userQueries.length) {
-        const userNode = userQueries[i];
-        const rawText = userNode.textContent?.includes('\n')
-          ? userNode.textContent
-          : (userNode.innerText || userNode.textContent || '');
-
-        const qText = rawText
-          .replace(/\r\n/g, '\n')
-          .replace(/^You said:\s*/i, '')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim();
-
-        if (qText) {
-          doc += `## User\n\n${qText}\n\n---\n\n`;
-        }
+    for (const t of turns) {
+      if (t.userText) {
+        doc += `## User\n\n${t.userText}\n\n---\n\n`;
       }
 
-      // AI response
-      if (i < responses.length) {
-        const respNode = responses[i];
+      if (t.respNode) {
+        const respNode = t.respNode;
         const contentWrapper = respNode.querySelector(':scope > div[style*="contents"]') || respNode;
 
         const turnBlocks = [];
@@ -495,9 +545,15 @@
     }
 
     // Download .md file
-    const allUserHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery));
-    const firstQNode = allUserHeadings.find((h) => !h.closest(SELECTORS.responseContainer));
-    const firstQ = firstQNode?.textContent.trim() || 'chat';
+    let firstQ = '';
+    try {
+      firstQ = new URL(window.location.href).searchParams.get('q') || '';
+    } catch (_) {}
+    if (!firstQ) {
+      const allUserHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery));
+      const firstQNode = allUserHeadings.find((h) => !h.closest(SELECTORS.responseContainer));
+      firstQ = (firstQNode?.innerText || firstQNode?.textContent || '').replace(/^You said:\s*/i, '').trim() || 'chat';
+    }
     const cleanName = firstQ.slice(0, 30).replace(/[^a-zA-Z0-9_-]/g, '_');
     const dateSlug = new Date().toISOString().slice(0, 10);
     const filename = `google-ai-mode_${cleanName}_${dateSlug}.md`;
