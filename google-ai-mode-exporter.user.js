@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google AI Mode Markdown Exporter
 // @namespace    https://github.com/midnight-wonderer/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Export Google Search AI Mode as Markdown
 // @match        https://*.google.com/search*
 // @grant        GM_setClipboard
@@ -119,6 +119,12 @@
       return '';
     }
 
+    // Filter out screen-reader highlight tokens
+    const textContent = node.textContent?.trim();
+    if (textContent === '[Highlight start]' || textContent === '[Highlight end]') {
+      return '';
+    }
+
     const tag = node.tagName.toLowerCase();
 
     // Scripts and styles should never produce markdown text
@@ -190,6 +196,12 @@
     if (tag === 'del' || tag === 's') {
       const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
       return text ? `~~${text}~~` : '';
+    }
+
+    // Mark / Highlight
+    if (tag === 'mark') {
+      const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
+      return text ? `==${text}==` : '';
     }
 
     // Blockquote
@@ -349,6 +361,32 @@
   }
 
   /**
+   * Clean raw user query text extracted from headings or prompts.
+   */
+  function cleanUserText(nodeOrText) {
+    if (!nodeOrText) return '';
+    let raw = '';
+    if (typeof nodeOrText === 'string') {
+      raw = nodeOrText;
+    } else {
+      raw = nodeOrText.textContent?.includes('\n')
+        ? nodeOrText.textContent
+        : (nodeOrText.innerText || nodeOrText.textContent || '');
+    }
+    let text = raw
+      .replace(/\r\n/g, '\n')
+      .replace(/^You said:\s*/i, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    // Remove duplicate repeated lines from screen-reader double rendering
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 2 && lines[0] === lines[1]) {
+      text = lines[0];
+    }
+    return text;
+  }
+
+  /**
    * Extract all conversation turns purely using unminified semantic attributes.
    */
   function extractConversation() {
@@ -358,73 +396,51 @@
       initialQuery = new URL(window.location.href).searchParams.get('q') || '';
     } catch (_) {}
 
-    // 2. Identify the turn stream container
-    const turnRoot = document.querySelector('[data-xid="aim-mars-turn-root"]');
-
-    // 3. Collect responses: initial response is outside aim-mars-turn-root, follow-ups are inside it
+    // 2. Collect all model response containers (the ground-truth responses)
     const allResponses = Array.from(document.querySelectorAll(SELECTORS.responseContainer));
-    const initialResponse = allResponses.find((r) => !r.closest('[data-xid="aim-mars-turn-root"]')) || allResponses[0];
-    const followUpResponses = turnRoot
-      ? Array.from(turnRoot.querySelectorAll(SELECTORS.responseContainer))
-      : allResponses.slice(1);
+    if (allResponses.length === 0) return '';
 
-    // 4. Collect user queries
-    // Fallback for initial query if URL 'q' is empty
-    if (!initialQuery) {
-      const candidateHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery)).filter((h) => {
-        if (h.closest(SELECTORS.responseContainer)) return false;
-        if (h.closest('nav, aside, [aria-label*="history" i], [data-xid="aim-threads-view"], [data-xid="BVEPif"]')) return false;
-        if (turnRoot && h.closest('[data-xid="aim-mars-turn-root"]')) return false;
-        return true;
-      });
-      if (candidateHeadings.length > 0) {
-        let raw = (candidateHeadings[0].innerText || candidateHeadings[0].textContent || '')
-          .replace(/\r\n/g, '\n')
-          .replace(/^You said:\s*/i, '')
-          .trim();
-        // Remove duplicate repeated lines from screen-reader double rendering
-        const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
-        if (lines.length === 2 && lines[0] === lines[1]) {
-          raw = lines[0];
-        }
-        initialQuery = raw;
-      }
-    }
+    // Collect candidate headings for fallback matching
+    const fallbackHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery)).filter(
+      (h) => !h.closest(SELECTORS.responseContainer) && !h.closest('nav, aside, [aria-label*="history" i], [data-xid="aim-threads-view"]')
+    );
 
-    // Follow-up user queries live strictly inside aim-mars-turn-root and outside responseContainer/sidebar
-    const followUpQueries = turnRoot
-      ? Array.from(turnRoot.querySelectorAll(SELECTORS.userQuery)).filter(
-          (h) => !h.closest(SELECTORS.responseContainer) && !h.closest('nav, aside, [aria-label*="history" i]')
-        )
-      : [];
-
-    // Assemble structured turns
     const turns = [];
 
-    // Turn 0 (Initial turn)
-    if (initialQuery || initialResponse) {
-      turns.push({
-        userText: initialQuery.trim(),
-        respNode: initialResponse
-      });
-    }
+    for (let i = 0; i < allResponses.length; i++) {
+      const respNode = allResponses[i];
 
-    // Follow-up turns (Turns 1..N)
-    const followUpCount = Math.max(followUpQueries.length, followUpResponses.length);
-    for (let i = 0; i < followUpCount; i++) {
-      const uNode = followUpQueries[i] || null;
-      let uText = '';
-      if (uNode) {
-        const raw = uNode.textContent?.includes('\n')
-          ? uNode.textContent
-          : (uNode.innerText || uNode.textContent || '');
-        uText = raw.replace(/\r\n/g, '\n').replace(/^You said:\s*/i, '').replace(/\n{3,}/g, '\n\n').trim();
+      // Climb up from respNode to find the isolated turn block containing its user query
+      let userNode = null;
+      let p = respNode.parentElement;
+      while (p && p !== document.body && p.getAttribute('data-xid') !== 'aim-mars-turn-root') {
+        const q = p.querySelector(SELECTORS.userQuery);
+        if (q && !q.closest(SELECTORS.responseContainer)) {
+          const respCount = p.querySelectorAll(SELECTORS.responseContainer).length;
+          if (respCount === 1) {
+            userNode = q;
+            break;
+          }
+        }
+        p = p.parentElement;
       }
-      const rNode = followUpResponses[i] || null;
-      if (uText || rNode) {
+
+      let uText = cleanUserText(userNode);
+
+      // Fallback 1: for Turn 0, use URL 'q' parameter if heading is missing or shorter
+      if (i === 0 && (!uText || initialQuery)) {
+        uText = cleanUserText(initialQuery) || uText;
+      }
+
+      // Fallback 2: fallback headings array if upward climbing didn't find a heading
+      if (!uText && fallbackHeadings[i]) {
+        uText = cleanUserText(fallbackHeadings[i]);
+      }
+
+      if (uText || respNode) {
         turns.push({
           userText: uText,
-          respNode: rNode
+          respNode: respNode
         });
       }
     }
