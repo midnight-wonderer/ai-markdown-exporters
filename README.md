@@ -14,7 +14,7 @@ A suite of lightweight, zero-dependency UserScripts to export chat sessions from
 | :--- | :--- | :--- | :--- |
 | **Google Gemini** | `gemini-markdown-exporter.user.js` | `gemini.google.com` | Composer toolbar & top menu |
 | **Google Search AI Mode** | `google-ai-mode-exporter.user.js` | `google.com/search` | Composer toolbar |
-| **Vertex AI Search** | `vertex-ai-search-markdown-exporter.user.js` | `vertexaisearch.cloud.google` | Top menu |
+| **Gemini Enterprise** (Vertex AI Search) | `vertex-ai-search-markdown-exporter.user.js` | `vertexaisearch.cloud.google` | Top menu |
 
 ---
 
