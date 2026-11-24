@@ -216,17 +216,21 @@
       const items = [];
       let itemIndex = 1;
 
-      for (const child of node.children) {
-        if (child.tagName.toLowerCase() === 'li') {
-          // Skip empty spacer items by checking text content
-          if (!child.textContent.trim()) {
-            continue;
-          }
-          const itemText = getChildrenMarkdown(child).replace(/\s+/g, ' ').trim();
-          if (itemText) {
-            const prefix = isOrdered ? `${itemIndex++}. ` : '- ';
-            items.push(`${prefix}${itemText}`);
-          }
+      // Handle both direct <li> children and intermediate wrapper children (<div> -> <li>)
+      const listItems = Array.from(node.children).map((child) => {
+        if (child.tagName.toLowerCase() === 'li') return child;
+        return child.querySelector?.(':scope > li, li') || child;
+      });
+
+      for (const item of listItems) {
+        // Skip empty spacer items by checking text content
+        if (!item.textContent.trim()) {
+          continue;
+        }
+        const itemText = getChildrenMarkdown(item).replace(/\s+/g, ' ').trim();
+        if (itemText) {
+          const prefix = isOrdered ? `${itemIndex++}. ` : '- ';
+          items.push(`${prefix}${itemText}`);
         }
       }
 
@@ -378,6 +382,10 @@
       .replace(/^You said:\s*/i, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+    // Ignore Google AI Mode banner label
+    if (/^ai overview$/i.test(text)) {
+      return '';
+    }
     // Remove duplicate repeated lines from screen-reader double rendering
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 2 && lines[0] === lines[1]) {
