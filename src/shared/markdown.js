@@ -28,10 +28,21 @@ export function createGoogleTurndownService(options = {}) {
   });
 
   // 2. Clamped Headings: subheadings inside turns start at level 3 (###) up to 6
+  // Supports both standard HTML headings (h1-h6) and W3C ARIA role="heading" (with aria-level)
   service.addRule('clampedHeadings', {
-    filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+    filter: (node) => {
+      if (node.nodeType !== 1) return false;
+      const tag = node.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag)) return true;
+      if (node.getAttribute('role') === 'heading') return true;
+      return false;
+    },
     replacement: (content, node) => {
-      const rawLevel = parseInt(node.tagName[1], 10);
+      const tag = node.tagName.toLowerCase();
+      const rawLevel = parseInt(
+        node.getAttribute('aria-level') || (tag.startsWith('h') ? tag[1] : '3'),
+        10
+      );
       const level = Math.min(Math.max(rawLevel >= 3 ? rawLevel : rawLevel + 2, 3), 6);
       const text = content.trim();
       return text ? `\n\n${'#'.repeat(level)} ${text}\n\n` : '';
