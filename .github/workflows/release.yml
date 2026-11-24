@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build-and-release:
@@ -37,6 +39,11 @@ jobs:
           test -f dist/gemini-markdown-exporter.user.js
           test -f dist/google-ai-mode-exporter.user.js
           test -f dist/vertex-ai-search-markdown-exporter.user.js
+
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*.user.js'
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
