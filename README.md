@@ -1,5 +1,9 @@
 # AI Markdown Exporters
 
+[![Latest Release](https://img.shields.io/github/v/release/midnight-wonderer/ai-markdown-exporters?color=blueviolet&label=Release)](https://github.com/midnight-wonderer/ai-markdown-exporters/releases)
+[![Build Provenance](https://img.shields.io/badge/Build_Artefacts-Attested-brightgreen?logo=github)](https://github.com/midnight-wonderer/ai-markdown-exporters/attestations)
+[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE.md)
+
 A suite of lightweight, zero-dependency UserScripts to export chat sessions from Google AI platforms into clean, standardized Markdown. 
 
 ---
