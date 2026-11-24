@@ -1,190 +1,11 @@
 import { normalizeHeadingLevels } from '../shared/headings.js';
-import { downloadMarkdown, getDateSlug } from '../shared/download.js';
-import { renderTableToMarkdown } from '../shared/tables.js';
-import { tryExtractMath } from '../shared/math.js';
+import { downloadMarkdown, getDateSlug, sanitizeFilename } from '../shared/download.js';
+import { createGoogleTurndownService } from '../shared/markdown.js';
+
+const turndown = createGoogleTurndownService();
 
 // =========================================================================
-// 1. HTML TO GFM MARKDOWN SERIALIZER (Reverse-engineered from Gemini AST)
-// =========================================================================
-
-class GeminiMarkdownConverter {
-  convert(node, indentLevel = 0) {
-    if (!node) return '';
-    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue;
-    if (node.nodeType !== Node.ELEMENT_NODE) return '';
-
-    const el = node;
-    const tag = el.tagName.toLowerCase();
-
-    // UI components & screen-reader headings to exclude
-    if (
-      el.classList.contains('cdk-visually-hidden') ||
-      el.classList.contains('screen-reader-user-query-label') ||
-      el.classList.contains('screen-reader-model-response-label') ||
-      el.classList.contains('luminous-actions-container') ||
-      el.classList.contains('response-footer') ||
-      el.classList.contains('hide-on-print') ||
-      el.getAttribute('data-suppress-highlight-to-ask') !== null ||
-      tag === 'button' ||
-      tag === 'gem-icon' ||
-      tag === 'mat-icon' ||
-      tag === 'gem-icon-button' ||
-      tag === 'message-actions' ||
-      tag === 'sources-list' ||
-      tag.endsWith('-disclaimer')
-    ) {
-      return '';
-    }
-
-    // 1. LaTeX Math
-    const math = tryExtractMath(el);
-    if (math) return math;
-
-    // 2. Code Blocks
-    if (
-      el.getAttribute('data-testid') === 'code-block' ||
-      tag === 'code-block' ||
-      (tag === 'pre' && !el.closest('[data-testid="code-block"], code-block'))
-    ) {
-      return this.parseCodeBlock(el);
-    }
-
-    // 3. Inline Code
-    if (tag === 'code' && !el.closest('pre')) {
-      return `\`${el.textContent}\``;
-    }
-
-    // 4. Headings (clamped between 3 and 6 so inner headings never collide with ## User / ## Assistant)
-    if (/^h[1-6]$/.test(tag)) {
-      const parsedLevel = parseInt(tag[1], 10);
-      const level = Math.min(Math.max(parsedLevel >= 3 ? parsedLevel : parsedLevel + 2, 3), 6);
-      const prefix = '#'.repeat(level);
-      const content = this.processChildren(el, indentLevel).trim();
-      return `\n\n${prefix} ${content}\n\n`;
-    }
-
-    // 5. Paragraphs
-    if (tag === 'p') {
-      const content = this.processChildren(el, indentLevel).trim();
-      return content ? `\n\n${content}\n\n` : '';
-    }
-
-    // 6. Formatting
-    if (tag === 'strong' || tag === 'b') return `**${this.processChildren(el, indentLevel)}**`;
-    if (tag === 'em' || tag === 'i') return `*${this.processChildren(el, indentLevel)}*`;
-    if (tag === 'del' || tag === 's') return `~~${this.processChildren(el, indentLevel)}~~`;
-    if (tag === 'mark') return `==${this.processChildren(el, indentLevel)}==`;
-    if (tag === 'u') return `<u>${this.processChildren(el, indentLevel)}</u>`;
-    if (tag === 'sub') {
-      const text = this.processChildren(el, indentLevel).trim();
-      return text ? `<sub>${text}</sub>` : '';
-    }
-    if (tag === 'sup') {
-      const text = this.processChildren(el, indentLevel).trim();
-      return text ? `<sup>${text}</sup>` : '';
-    }
-
-    // 7. Blockquotes
-    if (tag === 'blockquote') {
-      const content = this.processChildren(el, indentLevel).trim();
-      return `\n\n${content.split('\n').map((l) => `> ${l}`).join('\n')}\n\n`;
-    }
-
-    // 8. Lists & Checklists
-    if (tag === 'ul' || tag === 'ol') {
-      return this.parseList(el, indentLevel, tag === 'ol');
-    }
-
-    // 9. Tables
-    if (tag === 'table') {
-      return renderTableToMarkdown(el);
-    }
-
-    // 10. Horizontal Rule & Breaks
-    if (tag === 'hr') return '\n\n---\n\n';
-    if (tag === 'br') return '\n';
-
-    // 11. Links & Images
-    if (tag === 'a') {
-      const href = el.getAttribute('href') || '';
-      const text = this.processChildren(el, indentLevel).trim() || href;
-      return href ? `[${text}](${href})` : text;
-    }
-    if (tag === 'img') {
-      const src = el.getAttribute('src') || '';
-      const alt = el.getAttribute('alt') || 'image';
-      return src ? `![${alt}](${src})` : '';
-    }
-
-    return this.processChildren(el, indentLevel);
-  }
-
-  processChildren(el, indentLevel) {
-    let result = '';
-    for (let i = 0; i < el.childNodes.length; i++) {
-      result += this.convert(el.childNodes[i], indentLevel);
-    }
-    return result;
-  }
-
-  parseCodeBlock(el) {
-    let lang = '';
-    const langEl = el.querySelector(
-      '[variant="body-medium-emphasized"], .code-block-decoration, .code-block-header span, [class*="language-"]'
-    );
-    if (langEl) {
-      const text = langEl.textContent.trim().toLowerCase();
-      if (text && !text.includes('code snippet') && !text.includes('copy') && !text.includes('download')) {
-        lang = text.replace(/^language-/, '');
-      }
-    }
-
-    const codeNode = el.querySelector('[data-testid="code-content"]') || el.querySelector('pre, code') || el;
-    const clone = codeNode.cloneNode(true);
-    clone.querySelectorAll('button, gem-icon-button, .code-block-header').forEach((b) => b.remove());
-    const codeContent = clone.textContent.replace(/^\n+|\n+$/g, '');
-
-    let md = `\n\n\`\`\`${lang}\n${codeContent}\n\`\`\`\n\n`;
-
-    const outputNode = el.querySelector('[data-testid="code-output-stdout-stderr"]');
-    if (outputNode && outputNode.textContent.trim()) {
-      md += `> **Output:**\n\`\`\`\n${outputNode.textContent.trim()}\n\`\`\`\n\n`;
-    }
-    return md;
-  }
-
-  parseList(el, indentLevel, isOrdered) {
-    let result = '\n';
-    const indent = '  '.repeat(indentLevel);
-    let idx = 1;
-
-    for (let i = 0; i < el.children.length; i++) {
-      const child = el.children[i];
-      if (child.tagName.toLowerCase() === 'li') {
-        let bullet = isOrdered ? `${idx++}. ` : '- ';
-        const checkbox = child.querySelector('input[type="checkbox"]');
-        if (checkbox) {
-          bullet = checkbox.checked ? '- [x] ' : '- [ ] ';
-        }
-
-        let itemText = '';
-        for (let j = 0; j < child.childNodes.length; j++) {
-          const sub = child.childNodes[j];
-          if (sub.nodeType === Node.ELEMENT_NODE && (sub.tagName.toLowerCase() === 'ul' || sub.tagName.toLowerCase() === 'ol')) {
-            itemText += this.parseList(sub, indentLevel + 1, sub.tagName.toLowerCase() === 'ol');
-          } else {
-            itemText += this.convert(sub, indentLevel);
-          }
-        }
-        result += `${indent}${bullet}${itemText.trim()}\n`;
-      }
-    }
-    return result + '\n';
-  }
-}
-
-// =========================================================================
-// 2. CONVERSATION EXTRACTION & DOWNLOAD
+// 1. CONVERSATION EXTRACTION & DOWNLOAD
 // =========================================================================
 
 function extractGeminiSources(mrEl) {
@@ -218,8 +39,6 @@ function extractGeminiSources(mrEl) {
 }
 
 function downloadConversationAsMarkdown() {
-  const converter = new GeminiMarkdownConverter();
-
   let chatTitle = 'Gemini Conversation';
   const titleEl = document.querySelector('title, [data-test-id="conversation-title"], .conversation-title');
   if (titleEl && titleEl.textContent) {
@@ -259,7 +78,7 @@ function downloadConversationAsMarkdown() {
 
     if (uqEl) {
       const contentHolder = uqEl.querySelector('.query-text, .rendered-markdown-query, .query-content') || uqEl;
-      const uqText = converter.convert(contentHolder).trim();
+      const uqText = turndown.turndown(contentHolder).trim();
       if (uqText) {
         markdown += `## User\n\n${uqText}\n\n---\n\n`;
         turnCount++;
@@ -270,14 +89,14 @@ function downloadConversationAsMarkdown() {
       let assistantContent = '';
       const thinkingEl = mrEl.querySelector('thinking-overlay, .is-embedded-thought');
       if (thinkingEl && thinkingEl.textContent.trim()) {
-        const thoughtText = converter.convert(thinkingEl).trim();
+        const thoughtText = turndown.turndown(thinkingEl).trim();
         if (thoughtText) {
           assistantContent += `<details data-type="thought">\n<summary>Thought Process</summary>\n\n${thoughtText}\n\n</details>\n\n`;
         }
       }
 
       const responseHolder = mrEl.querySelector('message-content .markdown, message-content, .model-response-text') || mrEl;
-      const mrText = converter.convert(responseHolder).trim();
+      const mrText = turndown.turndown(responseHolder).trim();
       if (mrText) {
         assistantContent += `${normalizeHeadingLevels(mrText)}\n\n`;
 
@@ -302,7 +121,7 @@ function downloadConversationAsMarkdown() {
   }
 
   markdown = markdown.replace(/\n{3,}/g, '\n\n').trim() + '\n';
-  const safeTitle = chatTitle.replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, '_').substring(0, 50);
+  const safeTitle = sanitizeFilename(chatTitle, 50);
   const dateSlug = getDateSlug();
   const filename = `gemini_${safeTitle || 'chat'}_${dateSlug}.md`;
 
@@ -310,7 +129,7 @@ function downloadConversationAsMarkdown() {
 }
 
 // =========================================================================
-// 3. ZERO-BLOAT NATIVE INJECTION (Composer Bar + Menus)
+// 2. ZERO-BLOAT NATIVE INJECTION (Composer Bar + Menus)
 // =========================================================================
 
 function createDownloadIcon(size = 18, withPadding = false) {

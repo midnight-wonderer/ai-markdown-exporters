@@ -1,18 +1,9 @@
 import { normalizeHeadingLevels } from '../shared/headings.js';
-import { downloadMarkdown, getDateSlug } from '../shared/download.js';
-import { renderTableToMarkdown } from '../shared/tables.js';
-import { tryExtractMath } from '../shared/math.js';
+import { downloadMarkdown, getDateSlug, sanitizeFilename } from '../shared/download.js';
+import { createGoogleTurndownService } from '../shared/markdown.js';
 
-/**
- * Pure Semantic & ARIA Selectors:
- *
- * - User Questions: W3C role="heading" level 2 outside the AI response
- * - AI Responses:   Unminified component [data-container-id="main-col"]
- * - UI to ignore:   script, style, noscript, [data-ignore-copy], [data-xid="Gd7Hsc"],
- *                   [data-xid="aim-aside-initial-corroboration-container"],
- *                   button, svg, [aria-hidden="true"],
- *                   [role="progressbar"], [role="status"], [role="alert"]
- */
+const turndown = createGoogleTurndownService();
+
 const SELECTORS = {
   userQuery: '[role="heading"][aria-level="2"], h2',
   responseContainer: '[data-container-id="main-col"]',
@@ -31,202 +22,6 @@ const SELECTORS = {
     '[role="alert"]',
   ].join(', '),
 };
-
-/**
- * Convert an HTML DOM node into clean Markdown recursively.
- */
-function domToMarkdown(node) {
-  if (!node) return '';
-
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node.nodeValue;
-  }
-
-  if (node.nodeType !== Node.ELEMENT_NODE) {
-    return '';
-  }
-
-  // Intercept LaTeX Math before filtering ignoredElements (Google marks math <img> with aria-hidden="true")
-  const mathMd = tryExtractMath(node);
-  if (mathMd !== null) {
-    return mathMd;
-  }
-
-  // Filter out scripts, styles, UI chrome & ignored elements
-  if (node.matches && node.matches(SELECTORS.ignoredElements)) {
-    return '';
-  }
-
-  // Filter out hidden elements (e.g. style="display: none")
-  if (node.style && node.style.display === 'none') {
-    return '';
-  }
-
-  // Filter out screen-reader highlight tokens
-  const textContent = node.textContent?.trim();
-  if (textContent === '[Highlight start]' || textContent === '[Highlight end]') {
-    return '';
-  }
-
-  const tag = node.tagName.toLowerCase();
-
-  // Scripts and styles should never produce markdown text
-  if (tag === 'script' || tag === 'style' || tag === 'noscript') {
-    return '';
-  }
-
-  // Headings: W3C role="heading" or h1-h6
-  const role = node.getAttribute('role');
-  if (role === 'heading' || /^h[1-6]$/.test(tag)) {
-    const rawLevel = parseInt(node.getAttribute('aria-level') || (tag.startsWith('h') ? tag[1] : '3'), 10);
-    const level = Math.min(Math.max(rawLevel >= 3 ? rawLevel : rawLevel + 2, 3), 6);
-    const hashes = '#'.repeat(level);
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    return text ? `\n\n${hashes} ${text}\n\n` : '';
-  }
-
-  // Images: preserve substantive content images, omit favicons & 1x1 tracking pixels
-  if (tag === 'img') {
-    const src = node.getAttribute('src') || '';
-    const alt = node.getAttribute('alt') || '';
-    if (!src || src.startsWith('data:image/gif;base64,R0lGOD')) {
-      return '';
-    }
-    const w = parseInt(node.getAttribute('width') || node.style.width || '0', 10);
-    const h = parseInt(node.getAttribute('height') || node.style.height || '0', 10);
-    if ((w > 0 && w <= 48) || (h > 0 && h <= 48)) {
-      return '';
-    }
-    if (node.closest('a, button, [role="button"]') && (src.includes('favicon') || src.startsWith('data:'))) {
-      return '';
-    }
-    if (src.startsWith('data:') && !alt) {
-      return '';
-    }
-    return alt ? `\n\n![${alt}](${src})\n\n` : `\n\n![](${src})\n\n`;
-  }
-
-  // Code blocks: <pre> or <pre><code>
-  if (tag === 'pre') {
-    const codeNode = node.querySelector('code') || node;
-    const lang = (codeNode.getAttribute('class') || '').match(/(?:lang|language)-(\w+)/)?.[1] || '';
-    const codeText = codeNode.textContent.replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '');
-    return `\n\n\`\`\`${lang}\n${codeText}\n\`\`\`\n\n`;
-  }
-
-  // Inline code
-  if (tag === 'code' && node.parentElement?.tagName.toLowerCase() !== 'pre') {
-    const code = node.textContent.trim();
-    return code ? ` \`${code}\` ` : '';
-  }
-
-  // Bold / Strong
-  if (tag === 'strong' || tag === 'b') {
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    return text ? `**${text}**` : '';
-  }
-
-  // Italics / Em
-  if (tag === 'em' || tag === 'i') {
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    return text ? `*${text}*` : '';
-  }
-
-  // Strikethrough
-  if (tag === 'del' || tag === 's') {
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    return text ? `~~${text}~~` : '';
-  }
-
-  // Mark / Highlight
-  if (tag === 'mark') {
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    return text ? `==${text}==` : '';
-  }
-
-  // Blockquote
-  if (tag === 'blockquote') {
-    const text = getChildrenMarkdown(node).trim();
-    return text ? `\n\n> ${text.split('\n').join('\n> ')}\n\n` : '';
-  }
-
-  // Lists: ul, ol
-  if (tag === 'ul' || tag === 'ol') {
-    const isOrdered = tag === 'ol';
-    const items = [];
-    let itemIndex = 1;
-
-    const listItems = Array.from(node.children).map((child) => {
-      if (child.tagName.toLowerCase() === 'li') return child;
-      return child.querySelector?.(':scope > li, li') || child;
-    });
-
-    for (const item of listItems) {
-      if (!item.textContent.trim()) {
-        continue;
-      }
-      const itemText = getChildrenMarkdown(item).replace(/\s+/g, ' ').trim();
-      if (itemText) {
-        const prefix = isOrdered ? `${itemIndex++}. ` : '- ';
-        items.push(`${prefix}${itemText}`);
-      }
-    }
-
-    return items.length > 0 ? `\n\n${items.join('\n')}\n\n` : '';
-  }
-
-  // Tables
-  if (tag === 'table') {
-    return renderTableToMarkdown(node, (cell) => domToMarkdown(cell));
-  }
-
-  // Links: unwrap Google redirects and internal search/shopping dialogs
-  if (tag === 'a') {
-    let href = node.getAttribute('href') || '';
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    if (!href || href.startsWith('javascript:') || href.startsWith('#') || !text) {
-      return text;
-    }
-    if (href.startsWith('/url?') || href.includes('google.com/url?')) {
-      try {
-        const u = new URL(href, window.location.origin);
-        href = u.searchParams.get('q') || u.searchParams.get('url') || href;
-      } catch (_) {}
-    }
-    try {
-      const u = new URL(href, window.location.origin);
-      if (
-        u.hostname.endsWith('google.com') &&
-        (u.pathname.startsWith('/search') || u.pathname.startsWith('/preferences') || href.includes('ibp=oshop'))
-      ) {
-        return text;
-      }
-    } catch (_) {}
-
-    return `[${text}](${href})`;
-  }
-
-  // Line breaks
-  if (tag === 'br') {
-    return '\n';
-  }
-
-  // Standard paragraphs
-  if (tag === 'p') {
-    const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-    return text ? `\n\n${text}\n\n` : '';
-  }
-
-  return getChildrenMarkdown(node);
-}
-
-function getChildrenMarkdown(node) {
-  let result = '';
-  for (const child of node.childNodes) {
-    result += domToMarkdown(child);
-  }
-  return result;
-}
 
 /**
  * Extract unique outbound citation sources using unminified functional heuristics.
@@ -376,7 +171,7 @@ function extractConversation() {
         if (child.matches && child.matches(SELECTORS.ignoredElements)) continue;
         if (!child.textContent.trim()) continue;
 
-        const blockMd = domToMarkdown(child).replace(/\n{3,}/g, '\n\n').trim();
+        const blockMd = turndown.turndown(child).replace(/\n{3,}/g, '\n\n').trim();
         if (blockMd) {
           turnBlocks.push(blockMd);
         }
@@ -460,12 +255,11 @@ function handleExport(isCopyOnly = false) {
     return;
   }
 
-  // Download .md file
   const titleMatch = md.match(/^title:\s*"([^"]+)"/m);
   const rawTitle = titleMatch ? titleMatch[1] : 'chat';
-  const cleanName = rawTitle.slice(0, 30).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanName = sanitizeFilename(rawTitle, 40);
   const dateSlug = getDateSlug();
-  const filename = `google-ai-mode_${cleanName}_${dateSlug}.md`;
+  const filename = `google-ai-mode_${cleanName || 'chat'}_${dateSlug}.md`;
 
   downloadMarkdown(filename, md);
   showToast('✓ Markdown downloaded');

@@ -1,3 +1,5 @@
+import sanitize from 'sanitize-filename';
+
 /**
  * Triggers a client-side download of a Markdown file.
  *
@@ -25,16 +27,18 @@ export function getDateSlug() {
 }
 
 /**
- * Sanitizes a title string for use in a filename.
+ * Sanitizes an untrusted title string into a safe filesystem filename,
+ * preserving international unicode characters while stripping illegal OS characters.
+ *
  * @param {string} text
- * @param {number} [maxLength=40]
+ * @param {number} [maxLength=50]
  * @returns {string}
  */
-export function sanitizeFilename(text, maxLength = 40) {
+export function sanitizeFilename(text, maxLength = 50) {
   if (!text) return '';
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, maxLength);
+  const sanitized = sanitize(text.trim(), { replacement: '_' })
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return sanitized.slice(0, maxLength);
 }
