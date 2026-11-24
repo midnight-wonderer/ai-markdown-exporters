@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import monkey from 'vite-plugin-monkey';
 
 const TARGET = process.env.TARGET || 'gemini';
+const RAW_VERSION = process.env.SCRIPT_VERSION || process.env.GITHUB_REF_NAME || '';
+const VERSION = RAW_VERSION.replace(/^v/, '').trim();
 
 const TARGET_CONFIGS = {
   gemini: {
@@ -10,7 +12,7 @@ const TARGET_CONFIGS = {
     userscript: {
       name: 'Gemini Chat Markdown Exporter',
       namespace: 'https://github.com/midnight-wonderer/',
-      version: '1.0.0',
+      version: VERSION || '1.0.0',
       description: 'Adds "Export as Markdown" action to Gemini.',
       match: ['https://gemini.google.com/*'],
       grant: 'none',
@@ -23,7 +25,7 @@ const TARGET_CONFIGS = {
     userscript: {
       name: 'Google AI Mode Markdown Exporter',
       namespace: 'https://github.com/midnight-wonderer/',
-      version: '1.0.1',
+      version: VERSION || '1.0.0',
       description: 'Export Google Search AI Mode as Markdown',
       match: ['https://*.google.com/search*'],
       grant: ['GM_setClipboard'],
@@ -36,7 +38,7 @@ const TARGET_CONFIGS = {
     userscript: {
       name: 'Gemini Enterprise (Vertex AI Search) Markdown Exporter',
       namespace: 'https://github.com/midnight-wonderer/',
-      version: '1.0.0',
+      version: VERSION || '1.0.0',
       description: 'Adds "Export as Markdown" action to Gemini Enterprise.',
       match: ['https://vertexaisearch.cloud.google.com/*'],
       grant: 'none',

@@ -28,6 +28,8 @@ jobs:
 
       - name: Build UserScripts
         run: npm run build
+        env:
+          SCRIPT_VERSION: ${{ github.ref_name }}
 
       - name: Verify build outputs
         run: |
