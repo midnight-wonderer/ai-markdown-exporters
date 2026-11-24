@@ -164,7 +164,7 @@
         if (t.thought) {
           doc += `<details data-type="thought">\n<summary>Thought Process</summary>\n\n${t.thought}\n\n</details>\n\n`;
         }
-        doc += `${t.assistant}\n\n`;
+        doc += `${normalizeHeadingLevels(t.assistant)}\n\n`;
 
         if (Array.isArray(t.sources) && t.sources.length > 0) {
           doc += `### Sources\n\n`;
@@ -178,6 +178,76 @@
     }
 
     return doc.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+
+  /**
+   * Normalize markdown heading depths in assistant responses so that subheadings
+   * start strictly at level 3 (###) and increment without skips (e.g. ### -> ####).
+   * Adheres to CommonMark rules for ``` and ~~~ code fences and indentation.
+   */
+  function normalizeHeadingLevels(markdown) {
+    if (!markdown) return '';
+    const lines = markdown.split('\n');
+
+    let activeFence = null;
+    const levels = new Set();
+
+    function checkFence(line) {
+      const match = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (!match) return false;
+
+      const fenceStr = match[1];
+      const fenceChar = fenceStr[0];
+      const fenceLen = fenceStr.length;
+
+      if (!activeFence) {
+        activeFence = { char: fenceChar, length: fenceLen };
+        return true;
+      }
+      if (activeFence.char === fenceChar && fenceLen >= activeFence.length) {
+        activeFence = null;
+        return true;
+      }
+      return false;
+    }
+
+    // Pass 1: Identify unique heading levels outside code blocks
+    for (const line of lines) {
+      if (checkFence(line)) continue;
+      if (activeFence) continue;
+      if (/^( {4,}|\t)/.test(line)) continue;
+
+      const match = line.match(/^ {0,3}(#{1,6})\s+/);
+      if (match) {
+        levels.add(match[1].length);
+      }
+    }
+
+    if (levels.size === 0) return markdown;
+
+    const sortedLevels = Array.from(levels).sort((a, b) => a - b);
+    const levelMap = new Map();
+    sortedLevels.forEach((raw, idx) => {
+      // Subheadings inside ## Assistant start at ### (level 3) up to level 6
+      levelMap.set(raw, Math.min(3 + idx, 6));
+    });
+
+    // Pass 2: Remap heading levels
+    activeFence = null;
+    return lines
+      .map((line) => {
+        if (checkFence(line)) return line;
+        if (activeFence) return line;
+        if (/^( {4,}|\t)/.test(line)) return line;
+
+        const match = line.match(/^( {0,3})(#{1,6})(\s+.*)$/);
+        if (match && levelMap.has(match[2].length)) {
+          const newLevel = levelMap.get(match[2].length);
+          return match[1] + '#'.repeat(newLevel) + match[3];
+        }
+        return line;
+      })
+      .join('\n');
   }
 
   // 4. Download file helper

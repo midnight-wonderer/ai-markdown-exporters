@@ -517,23 +517,43 @@
   /**
    * Normalize markdown heading depths in assistant responses so that subheadings
    * start strictly at level 3 (###) and increment without skips (e.g. ### -> ####).
+   * Adheres to CommonMark rules for ``` and ~~~ code fences and indentation.
    */
   function normalizeHeadingLevels(markdown) {
     if (!markdown) return '';
     const lines = markdown.split('\n');
-    let inCodeBlock = false;
+
+    let activeFence = null;
     const levels = new Set();
 
-    for (const line of lines) {
-      if (/^```/.test(line.trim())) {
-        inCodeBlock = !inCodeBlock;
-        continue;
+    function checkFence(line) {
+      const match = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (!match) return false;
+
+      const fenceStr = match[1];
+      const fenceChar = fenceStr[0];
+      const fenceLen = fenceStr.length;
+
+      if (!activeFence) {
+        activeFence = { char: fenceChar, length: fenceLen };
+        return true;
       }
-      if (!inCodeBlock) {
-        const match = line.match(/^(#{1,6})\s+/);
-        if (match) {
-          levels.add(match[1].length);
-        }
+      if (activeFence.char === fenceChar && fenceLen >= activeFence.length) {
+        activeFence = null;
+        return true;
+      }
+      return false;
+    }
+
+    // Pass 1: Identify unique heading levels outside code blocks
+    for (const line of lines) {
+      if (checkFence(line)) continue;
+      if (activeFence) continue;
+      if (/^( {4,}|\t)/.test(line)) continue;
+
+      const match = line.match(/^ {0,3}(#{1,6})\s+/);
+      if (match) {
+        levels.add(match[1].length);
       }
     }
 
@@ -546,19 +566,18 @@
       levelMap.set(raw, Math.min(3 + idx, 6));
     });
 
-    inCodeBlock = false;
+    // Pass 2: Remap heading levels
+    activeFence = null;
     return lines
       .map((line) => {
-        if (/^```/.test(line.trim())) {
-          inCodeBlock = !inCodeBlock;
-          return line;
-        }
-        if (!inCodeBlock) {
-          const match = line.match(/^(#{1,6})(\s+.*)$/);
-          if (match && levelMap.has(match[1].length)) {
-            const newLevel = levelMap.get(match[1].length);
-            return '#'.repeat(newLevel) + match[2];
-          }
+        if (checkFence(line)) return line;
+        if (activeFence) return line;
+        if (/^( {4,}|\t)/.test(line)) return line;
+
+        const match = line.match(/^( {0,3})(#{1,6})(\s+.*)$/);
+        if (match && levelMap.has(match[2].length)) {
+          const newLevel = levelMap.get(match[2].length);
+          return match[1] + '#'.repeat(newLevel) + match[3];
         }
         return line;
       })
