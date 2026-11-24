@@ -1,0 +1,33 @@
+{
+  "name": "ai-markdown-exporters",
+  "version": "1.0.0",
+  "description": "A suite of lightweight, zero-dependency UserScripts to export chat sessions from Google AI platforms into clean, standardized Markdown.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/midnight-wonderer/ai-markdown-exporters.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "scripts": {
+    "dev:gemini": "TARGET=gemini vite",
+    "dev:google-ai-mode": "TARGET=google-ai-mode vite",
+    "dev:vertex-ai": "TARGET=vertex-ai vite",
+    "build:gemini": "TARGET=gemini vite build",
+    "build:google-ai-mode": "TARGET=google-ai-mode vite build",
+    "build:vertex-ai": "TARGET=vertex-ai vite build",
+    "build": "rm -rf dist && npm run build:gemini && npm run build:google-ai-mode && npm run build:vertex-ai"
+  },
+  "bugs": {
+    "url": "https://github.com/midnight-wonderer/ai-markdown-exporters/issues"
+  },
+  "homepage": "https://github.com/midnight-wonderer/ai-markdown-exporters#readme",
+  "devDependencies": {
+    "vite": "^8.3.8",
+    "vite-plugin-monkey": "^8.1.1"
+  },
+  "dependencies": {
+    "ramda": "^0.32.0"
+  }
+}

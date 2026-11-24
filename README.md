@@ -8,9 +8,9 @@ A suite of lightweight, zero-dependency UserScripts to export chat sessions from
 
 | Platform | Script | Target URL | Integration Point |
 | :--- | :--- | :--- | :--- |
-| **Google Gemini** | [`gemini-markdown-exporter.user.js`](./gemini-markdown-exporter.user.js) | `gemini.google.com` | Composer toolbar & top menu |
-| **Google Search AI Mode** | [`google-ai-mode-exporter.user.js`](./google-ai-mode-exporter.user.js) | `google.com/search` | Composer toolbar |
-| **Vertex AI Search** | [`vertex-ai-search-markdown-exporter.user.js`](./vertex-ai-search-markdown-exporter.user.js) | `vertexaisearch.cloud.google` | Top menu |
+| **Google Gemini** | `gemini-markdown-exporter.user.js` | `gemini.google.com` | Composer toolbar & top menu |
+| **Google Search AI Mode** | `google-ai-mode-exporter.user.js` | `google.com/search` | Composer toolbar |
+| **Vertex AI Search** | `vertex-ai-search-markdown-exporter.user.js` | `vertexaisearch.cloud.google` | Top menu |
 
 ---
 
@@ -79,5 +79,23 @@ $$
 1. Install a UserScript manager extension in your browser:
    * [Violentmonkey](https://violentmonkey.github.io/) (Recommended)
    * [Tampermonkey](https://www.tampermonkey.net/)
-2. Open the desired `.user.js` file from this repository and copy the script into your manager (or enable developer mode and drag-and-drop).
-3. Navigate to the platform's chat page—the export button or menu option will appear automatically.
+2. Download the `.user.js` asset from the latest [GitHub Releases](../../releases) (clicking the `.user.js` link triggers an automatic install prompt in Violentmonkey/Tampermonkey).
+
+---
+
+## Development
+
+Prerequisites: Node.js 20+
+
+```bash
+# Install dependencies
+npm install
+
+# Start development with live reload / HMR for a specific platform:
+npm run dev:gemini
+npm run dev:google-ai-mode
+npm run dev:vertex-ai
+
+# Build all userscripts into dist/
+npm run build
+```
