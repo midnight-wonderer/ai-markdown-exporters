@@ -34,8 +34,6 @@
       'button',
       'svg',
       '[aria-hidden="true"]',
-      // '[style*="display: none"]',
-      // '[style*="display:none"]',
       '[role="progressbar"]',
       '[role="status"]',
       '[role="alert"]'
