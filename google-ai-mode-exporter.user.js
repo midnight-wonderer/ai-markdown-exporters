@@ -494,7 +494,7 @@
 
         let fullRespMd = turnBlocks.join('\n\n').trim();
         if (fullRespMd) {
-          doc += `## Assistant\n\n${fullRespMd}\n\n`;
+          doc += `## Assistant\n\n${normalizeHeadingLevels(fullRespMd)}\n\n`;
 
           // Extract citation sources
           const sources = extractOutboundSources(respNode);
@@ -512,6 +512,57 @@
     }
 
     return doc.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+
+  /**
+   * Normalize markdown heading depths in assistant responses so that subheadings
+   * start strictly at level 3 (###) and increment without skips (e.g. ### -> ####).
+   */
+  function normalizeHeadingLevels(markdown) {
+    if (!markdown) return '';
+    const lines = markdown.split('\n');
+    let inCodeBlock = false;
+    const levels = new Set();
+
+    for (const line of lines) {
+      if (/^```/.test(line.trim())) {
+        inCodeBlock = !inCodeBlock;
+        continue;
+      }
+      if (!inCodeBlock) {
+        const match = line.match(/^(#{1,6})\s+/);
+        if (match) {
+          levels.add(match[1].length);
+        }
+      }
+    }
+
+    if (levels.size === 0) return markdown;
+
+    const sortedLevels = Array.from(levels).sort((a, b) => a - b);
+    const levelMap = new Map();
+    sortedLevels.forEach((raw, idx) => {
+      // Subheadings inside ## Assistant start at ### (level 3) up to level 6
+      levelMap.set(raw, Math.min(3 + idx, 6));
+    });
+
+    inCodeBlock = false;
+    return lines
+      .map((line) => {
+        if (/^```/.test(line.trim())) {
+          inCodeBlock = !inCodeBlock;
+          return line;
+        }
+        if (!inCodeBlock) {
+          const match = line.match(/^(#{1,6})(\s+.*)$/);
+          if (match && levelMap.has(match[1].length)) {
+            const newLevel = levelMap.get(match[1].length);
+            return '#'.repeat(newLevel) + match[2];
+          }
+        }
+        return line;
+      })
+      .join('\n');
   }
 
   /**
