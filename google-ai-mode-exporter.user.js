@@ -400,11 +400,6 @@
     const allResponses = Array.from(document.querySelectorAll(SELECTORS.responseContainer));
     if (allResponses.length === 0) return '';
 
-    // Collect candidate headings for fallback matching
-    const fallbackHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery)).filter(
-      (h) => !h.closest(SELECTORS.responseContainer) && !h.closest('nav, aside, [aria-label*="history" i], [data-xid="aim-threads-view"]')
-    );
-
     const turns = [];
 
     for (let i = 0; i < allResponses.length; i++) {
@@ -416,8 +411,7 @@
       while (p && p !== document.body && p.getAttribute('data-xid') !== 'aim-mars-turn-root') {
         const q = p.querySelector(SELECTORS.userQuery);
         if (q && !q.closest(SELECTORS.responseContainer)) {
-          const respCount = p.querySelectorAll(SELECTORS.responseContainer).length;
-          if (respCount === 1) {
+          if (p.querySelectorAll(SELECTORS.responseContainer).length === 1) {
             userNode = q;
             break;
           }
@@ -427,14 +421,9 @@
 
       let uText = cleanUserText(userNode);
 
-      // Fallback 1: for Turn 0, use URL 'q' parameter if heading is missing or shorter
-      if (i === 0 && (!uText || initialQuery)) {
-        uText = cleanUserText(initialQuery) || uText;
-      }
-
-      // Fallback 2: fallback headings array if upward climbing didn't find a heading
-      if (!uText && fallbackHeadings[i]) {
-        uText = cleanUserText(fallbackHeadings[i]);
+      // Fallback for Turn 0: use URL 'q' parameter if heading is missing
+      if (i === 0 && !uText && initialQuery) {
+        uText = cleanUserText(initialQuery);
       }
 
       if (uText || respNode) {
@@ -561,16 +550,9 @@
     }
 
     // Download .md file
-    let firstQ = '';
-    try {
-      firstQ = new URL(window.location.href).searchParams.get('q') || '';
-    } catch (_) {}
-    if (!firstQ) {
-      const allUserHeadings = Array.from(document.querySelectorAll(SELECTORS.userQuery));
-      const firstQNode = allUserHeadings.find((h) => !h.closest(SELECTORS.responseContainer));
-      firstQ = (firstQNode?.innerText || firstQNode?.textContent || '').replace(/^You said:\s*/i, '').trim() || 'chat';
-    }
-    const cleanName = firstQ.slice(0, 30).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const titleMatch = md.match(/^title:\s*"([^"]+)"/m);
+    const rawTitle = titleMatch ? titleMatch[1] : 'chat';
+    const cleanName = rawTitle.slice(0, 30).replace(/[^a-zA-Z0-9_-]/g, '_');
     const dateSlug = new Date().toISOString().slice(0, 10);
     const filename = `google-ai-mode_${cleanName}_${dateSlug}.md`;
 
