@@ -40,7 +40,7 @@ const TARGET_CONFIGS = {
       namespace: 'https://github.com/midnight-wonderer/',
       version: VERSION || '1.0.0',
       description: 'Adds "Export as Markdown" action to Gemini Enterprise.',
-      match: ['https://vertexaisearch.cloud.google.com/*'],
+      match: ['https://vertexaisearch.cloud.google/*'],
       grant: 'none',
       'run-at': 'document-idle',
     },
