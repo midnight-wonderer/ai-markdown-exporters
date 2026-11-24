@@ -34,6 +34,8 @@
       'button',
       'svg',
       '[aria-hidden="true"]',
+      // '[style*="display: none"]',
+      // '[style*="display:none"]',
       '[role="progressbar"]',
       '[role="status"]',
       '[role="alert"]'
@@ -116,6 +118,11 @@
 
     // Filter out scripts, styles, UI chrome & ignored elements
     if (node.matches && node.matches(SELECTORS.ignoredElements)) {
+      return '';
+    }
+
+    // Filter out hidden elements (e.g. style="display: none")
+    if (node.style && node.style.display === 'none') {
       return '';
     }
 
@@ -242,11 +249,11 @@
       return renderTableToMarkdown(node);
     }
 
-    // Links: unwrap Google redirects
+    // Links: unwrap Google redirects and internal search/shopping dialogs
     if (tag === 'a') {
       let href = node.getAttribute('href') || '';
       const text = getChildrenMarkdown(node).replace(/\s+/g, ' ').trim();
-      if (!href || href.startsWith('javascript:') || !text) {
+      if (!href || href.startsWith('javascript:') || href.startsWith('#') || !text) {
         return text;
       }
       if (href.startsWith('/url?') || href.includes('google.com/url?')) {
@@ -255,6 +262,17 @@
           href = u.searchParams.get('q') || u.searchParams.get('url') || href;
         } catch (_) { }
       }
+      // Unwrap internal Google search features, dialogs, shopping, and settings links
+      try {
+        const u = new URL(href, window.location.origin);
+        if (
+          u.hostname.endsWith('google.com') &&
+          (u.pathname.startsWith('/search') || u.pathname.startsWith('/preferences') || href.includes('ibp=oshop'))
+        ) {
+          return text;
+        }
+      } catch (_) { }
+
       return `[${text}](${href})`;
     }
 
@@ -402,7 +420,7 @@
     let initialQuery = '';
     try {
       initialQuery = new URL(window.location.href).searchParams.get('q') || '';
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Collect all model response containers (the ground-truth responses)
     const allResponses = Array.from(document.querySelectorAll(SELECTORS.responseContainer));
@@ -464,12 +482,10 @@
 
       if (t.respNode) {
         const respNode = t.respNode;
-        const contentWrapper = respNode.querySelector(':scope > div[style*="contents"]') || respNode;
 
         const turnBlocks = [];
-        for (const child of contentWrapper.children) {
+        for (const child of respNode.children) {
           if (child.matches && child.matches(SELECTORS.ignoredElements)) continue;
-          if (child.querySelector?.('[data-ignore-copy], [data-xid="Gd7Hsc"]')) continue;
           if (!child.textContent.trim()) continue;
 
           const blockMd = domToMarkdown(child).replace(/\n{3,}/g, '\n\n').trim();
