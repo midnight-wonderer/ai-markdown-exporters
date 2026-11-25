@@ -1,6 +1,6 @@
 # AI Markdown Exporters
 
-[![Latest Release](https://img.shields.io/github/v/release/midnight-wonderer/ai-markdown-exporters?color=aliceblue&label=Release)](https://github.com/midnight-wonderer/ai-markdown-exporters/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/midnight-wonderer/ai-markdown-exporters?color=aliceblue&label=Release)](../../releases/latest)
 [![Build Provenance](https://img.shields.io/badge/Build_Artefacts-Attested-brightgreen?logo=github)](https://github.com/midnight-wonderer/ai-markdown-exporters/attestations)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-steelblue.svg)](LICENSE.md)
 
@@ -23,7 +23,7 @@ A suite of lightweight, zero-dependency UserScripts to export chat sessions from
 - **One-Click Full Conversation Export:** Exports the entire chat session into a single Markdown file directly from toolbars and menus.
 - **Rich Formatting & Code Blocks:** Preserves headings, bullet and numbered lists, tables, bold text, links, and code blocks with detected language tags.
 - **Mathematical Formulations (LaTeX):** Preserves display equations (`$$...$$`) and inline variables (`$...$`) across KaTeX, MathML, and Google's internal `data-xpm-latex` rendering.
-- **100% Client-Side & Private:** Runs entirely within your browser with zero data collection, no external servers, and no tracking.
+- **100% Client-Side & Private:** Runs entirely within your browser with zero data collection, no external servers, no tracking, and no silent background updates.
 
 ---
 
@@ -84,7 +84,11 @@ $$
 1. Install a UserScript manager extension in your browser:
    * [Violentmonkey](https://violentmonkey.github.io/) (Recommended)
    * [Tampermonkey](https://www.tampermonkey.net/)
-2. Download the `.user.js` asset from the latest [GitHub Releases](../../releases) (clicking the `.user.js` link triggers an automatic install prompt in Violentmonkey/Tampermonkey).
+2. Download the `.user.js` asset from the latest [GitHub Releases](../../releases/latest) (clicking the `.user.js` link triggers an automatic install prompt in Violentmonkey/Tampermonkey).
+
+> [!NOTE]
+> Releases are pinned to immutable GitHub release assets with build provenance. There are no silent automatic updates, so you always retain full control over the exact code executing in your browser.  
+> Check the Releases page when you want to upgrade.
 
 ---
 
