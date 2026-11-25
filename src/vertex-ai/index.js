@@ -19,113 +19,141 @@ function findElementDeep(selector, root = document) {
   return null;
 }
 
-// 2. Extract turns from <ucs-conversation> (memory state + Shadow DOM fallback)
+function findElementsDeep(selector, root = document) {
+  const results = [];
+  const queue = [root];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+    if (current.querySelectorAll) {
+      const found = current.querySelectorAll(selector);
+      for (const el of found) results.push(el);
+      const all = current.querySelectorAll('*');
+      for (const el of all) {
+        if (el.shadowRoot) queue.push(el.shadowRoot);
+      }
+    }
+  }
+  return results;
+}
+
+// Clean thought text by stripping trailing raw followup JSON
+function cleanThoughtText(text) {
+  return text.replace(/\n\n\{"questions":\s*\[.*$/s, '').trim();
+}
+
+// Extract thinking process from <ucs-activity-timeline> elements within a turn container
+function extractTimelineThoughts(container) {
+  if (!container) return '';
+  const timelines = findElementsDeep('ucs-activity-timeline', container);
+  if (timelines.length === 0) return '';
+
+  const sections = [];
+  for (const tl of timelines) {
+    const sectionTitle = tl.shadowRoot?.querySelector('summary .title')?.textContent?.trim() || '';
+
+    // Approach 1: In-memory .steps property on <ucs-activity-timeline>
+    if (Array.isArray(tl.steps) && tl.steps.length > 0) {
+      const thoughts = tl.steps
+        .filter((s) => s.kind === 'thought' && s.title)
+        .map((s) => s.title.trim());
+
+      if (thoughts.length > 0) {
+        sections.push(sectionTitle ? `**${sectionTitle}**\n${thoughts.join('\n\n')}` : thoughts.join('\n\n'));
+        continue;
+      }
+    }
+
+    // Approach 2: Shadow DOM fallback
+    if (tl.shadowRoot) {
+      const thoughtRows = tl.shadowRoot.querySelectorAll('.row.thought .title, .row.thought .label');
+      const thoughts = Array.from(thoughtRows)
+        .map((r) => r.textContent.trim())
+        .filter(Boolean);
+
+      if (thoughts.length > 0) {
+        sections.push(sectionTitle ? `**${sectionTitle}**\n${thoughts.join('\n\n')}` : thoughts.join('\n\n'));
+      }
+    }
+  }
+
+  return sections.join('\n\n').trim();
+}
+
+// Extract reasoning / thought process from turn object or its DOM timeline
+function extractTurnThought(t, turnEl) {
+  if (Array.isArray(t.reply?.answer?.summaryThoughts) && t.reply.answer.summaryThoughts.length > 0) {
+    return t.reply.answer.summaryThoughts
+      .map((st) => (st.title ? `**${st.title}**\n${cleanThoughtText(st.summary || '')}` : cleanThoughtText(st.summary || '')))
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+  }
+  if (Array.isArray(t.reply?.answer?.rawThoughts) && t.reply.answer.rawThoughts.length > 0) {
+    return t.reply.answer.rawThoughts.map(cleanThoughtText).join('\n\n').trim();
+  }
+  return extractTimelineThoughts(turnEl);
+}
+
+// 2. Extract turns from <ucs-conversation>
 function extractConversationData() {
   const conv = findElementDeep('ucs-conversation');
-  if (!conv) return null;
+  if (!conv || !Array.isArray(conv.turns)) return null;
 
   const turns = [];
   let modelId = '';
   let sessionId = '';
+  const turnEls = conv.shadowRoot?.querySelectorAll('.turn') || [];
 
-  // Approach A: Read in-memory .turns property on <ucs-conversation>
-  if (Array.isArray(conv.turns) && conv.turns.length > 0) {
-    for (const t of conv.turns) {
-      const user = t.query?.text || t.query?.parts?.map((p) => p.text).join('') || '';
+  conv.turns.forEach((t, idx) => {
+    const user = t.query?.text || '';
 
-      // Extract model and session metadata if present
-      if (!modelId && t.reply?.queryConfig?.modelId) {
-        modelId = t.reply.queryConfig.modelId;
-      }
-      if (!sessionId && t.reply?.session) {
-        sessionId = t.reply.session.split('/').pop();
-      }
+    if (!modelId && t.reply?.queryConfig?.modelId) {
+      modelId = t.reply.queryConfig.modelId;
+    }
+    if (!sessionId && t.reply?.session) {
+      sessionId = t.reply.session.split('/').pop();
+    }
 
-      // Extract reasoning / thought process
-      let thought = '';
-      if (Array.isArray(t.reply?.answer?.rawThoughts) && t.reply.answer.rawThoughts.length > 0) {
-        thought = t.reply.answer.rawThoughts.join('\n\n').trim();
-      } else if (Array.isArray(t.reply?.answer?.summaryThoughts) && t.reply.answer.summaryThoughts.length > 0) {
-        thought = t.reply.answer.summaryThoughts
-          .map((st) => (st.title ? `**${st.title}**\n${st.summary || ''}` : st.summary || ''))
-          .filter(Boolean)
-          .join('\n\n')
-          .trim();
-      }
+    const thought = extractTurnThought(t, turnEls[idx] || conv);
 
-      // Extract assistant text and collect references
-      let assistant = '';
-      const references = [];
-      const seenUris = new Set();
+    let assistant = '';
+    const references = [];
+    const seenUris = new Set();
 
-      if (Array.isArray(t.reply?.answer?.segments)) {
-        let rawText = '';
-        for (const s of t.reply.answer.segments) {
-          if (s.text) {
-            rawText += s.text;
-          }
-          if (Array.isArray(s.references)) {
-            for (const ref of s.references) {
-              if (ref?.uri && !seenUris.has(ref.uri)) {
-                seenUris.add(ref.uri);
-                references.push({
-                  title: ref.title || ref.domain || ref.uri,
-                  uri: ref.uri,
-                });
-              }
+    if (Array.isArray(t.reply?.answer?.segments)) {
+      let rawText = '';
+      for (const s of t.reply.answer.segments) {
+        if (s.text) {
+          rawText += s.text;
+        }
+        if (Array.isArray(s.references)) {
+          for (const ref of s.references) {
+            if (ref?.uri && !seenUris.has(ref.uri)) {
+              seenUris.add(ref.uri);
+              references.push({
+                title: ref.title || ref.domain || ref.uri,
+                uri: ref.uri,
+              });
             }
           }
         }
-        assistant = rawText
-          .replace(/\[\[section:[^\]]+\]\]/g, '')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim();
-      } else if (typeof t.reply?.answer === 'string') {
-        assistant = t.reply.answer.replace(/\[\[section:[^\]]+\]\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
-      } else if (t.reply?.answer?.raw) {
-        assistant = t.reply.answer.raw.replace(/\[\[section:[^\]]+\]\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
       }
-
-      if (user || assistant) {
-        turns.push({
-          user: user.trim(),
-          assistant: assistant.trim(),
-          thought: thought.trim(),
-          sources: references,
-        });
-      }
+      assistant = rawText
+        .replace(/\[\[section:[^\]]+\]\]/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
     }
-    if (turns.length > 0) return { turns, modelId, sessionId };
-  }
 
-  // Approach B: Deep Shadow DOM traversal on .turn containers
-  if (conv.shadowRoot) {
-    const turnEls = conv.shadowRoot.querySelectorAll('.turn');
-    for (const el of turnEls) {
-      const userFastMd = findElementDeep('ucs-fast-markdown', el);
-      const user = userFastMd?.markdown || userFastMd?.shadowRoot?.textContent?.trim() || '';
-
-      const summaryEl = el.querySelector('ucs-summary, ucs-research-summary, ucs-orchestration-summary');
-      let assistant = '';
-      if (summaryEl) {
-        const respMd = findElementDeep('ucs-response-markdown', summaryEl.shadowRoot || summaryEl);
-        assistant =
-          respMd?.markdown ||
-          findElementDeep('ucs-fast-markdown', respMd?.shadowRoot || summaryEl.shadowRoot)?.markdown ||
-          summaryEl.shadowRoot?.textContent?.trim() ||
-          '';
-      }
-
-      if (user || assistant) {
-        turns.push({
-          user: user.trim(),
-          assistant: assistant.trim(),
-          thought: '',
-          sources: [],
-        });
-      }
+    if (user || assistant) {
+      turns.push({
+        user: user.trim(),
+        assistant: assistant.trim(),
+        thought: thought.trim(),
+        sources: references,
+      });
     }
-  }
+  });
 
   return { turns, modelId, sessionId };
 }
