@@ -20,9 +20,10 @@ A suite of lightweight, zero-dependency UserScripts to export chat sessions from
 
 ## Key Features
 
+- **One-Click Full Conversation Export:** Exports the entire chat session into a single Markdown file directly from toolbars and menus.
+- **Rich Formatting & Code Blocks:** Preserves headings, bullet and numbered lists, tables, bold text, links, and code blocks with detected language tags.
 - **Mathematical Formulations (LaTeX):** Preserves display equations (`$$...$$`) and inline variables (`$...$`) across KaTeX, MathML, and Google's internal `data-xpm-latex` rendering.
-- **Preserved Citations & Grounding:** Resolves outbound source URLs and deduplicates them into a clean `### Sources` section at the end of each assistant turn.
-- **Thinking / CoT Support:** Retains chain-of-thought reasoning in collapsible `<details data-type="thought">` blocks.
+- **100% Client-Side & Private:** Runs entirely within your browser with zero data collection, no external servers, and no tracking.
 
 ---
 
