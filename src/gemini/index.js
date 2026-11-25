@@ -8,71 +8,6 @@ const turndown = createGoogleTurndownService();
 // 1. CONVERSATION EXTRACTION & DOWNLOAD
 // =========================================================================
 
-async function extractGeminiThought(mrEl) {
-  // 1. Check if thought-summary is already mounted in the DOM
-  let container = mrEl.querySelector('thought-summary, .thought-steps') || document.querySelector('thought-summary, .thought-steps');
-
-  // 2. If not mounted, open the "Show thinking steps" drawer on demand
-  if (!container) {
-    const moreBtn = mrEl.querySelector('[aria-label*="more options" i], [aria-label*="More" i]');
-    if (moreBtn) {
-      moreBtn.click();
-      await new Promise((r) => setTimeout(r, 60));
-
-      const menuItems = Array.from(document.querySelectorAll('gem-menu-item, [role="menuitem"], button'));
-      const thinkingItem = menuItems.find((el) =>
-        /thinking steps/i.test(el.textContent || el.getAttribute('aria-label') || '')
-      );
-
-      if (thinkingItem) {
-        thinkingItem.click();
-        await new Promise((r) => setTimeout(r, 100));
-        container = document.querySelector('thought-summary, .thought-steps');
-
-        const closeBtn = document.querySelector('context-sidebar [aria-label*="close" i], context-sidebar button');
-        if (closeBtn) closeBtn.click();
-      } else {
-        moreBtn.click(); // Close popover
-      }
-    }
-  }
-
-  if (!container) return '';
-
-  const stepEls = container.querySelectorAll('.thought-step-container');
-  if (stepEls.length > 0) {
-    const steps = Array.from(stepEls).map((el) => {
-      const title = el.querySelector('.thought-step-title')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-      const contentEl = el.querySelector('.thought-content');
-      if (!contentEl) return title ? `**${title}**` : '';
-
-      const clone = contentEl.cloneNode(true);
-      clone.querySelector('.thought-step-title')?.remove();
-      clone.querySelectorAll('button, gem-icon-button, .code-execution-actions, .timeline-track, .code-line-count').forEach((b) => b.remove());
-
-      // If code-execution-block is present, ensure language header isn't squashed into code
-      clone.querySelectorAll('.code-execution-block').forEach((block) => {
-        const lang = block.querySelector('.code-language')?.textContent?.trim() || '';
-        const codeNode = block.querySelector('pre, code') || block;
-        const codeText = codeNode.textContent.replace(/^\n+|\n+$/g, '');
-        const mdCode = document.createElement('pre');
-        mdCode.textContent = `\`\`\`${lang.toLowerCase()}\n${codeText}\n\`\`\``;
-        block.replaceWith(mdCode);
-      });
-
-      const body = turndown.turndown(clone).trim();
-      return title && body ? `**${title}**\n\n${body}` : title || body;
-    }).filter(Boolean);
-
-    if (steps.length > 0) {
-      return steps.join('\n\n').trim();
-    }
-  }
-
-  // Fallback to turndown on container if not using .thought-step-container
-  return turndown.turndown(container).trim();
-}
-
 function extractGeminiSources(mrEl) {
   const sources = [];
   const seen = new Set();
@@ -103,7 +38,7 @@ function extractGeminiSources(mrEl) {
   return sources;
 }
 
-async function downloadConversationAsMarkdown() {
+function downloadConversationAsMarkdown() {
   let chatTitle = 'Gemini Conversation';
   const titleEl = document.querySelector('title, [data-test-id="conversation-title"], .conversation-title');
   if (titleEl && titleEl.textContent) {
@@ -137,7 +72,7 @@ async function downloadConversationAsMarkdown() {
 
   let turnCount = 0;
 
-  for (const item of containers) {
+  containers.forEach((item) => {
     const uqEl = item instanceof HTMLElement ? item.querySelector('user-query') : item.userQuery;
     const mrEl = item instanceof HTMLElement ? item.querySelector('model-response') : item.modelResponse;
 
@@ -152,11 +87,6 @@ async function downloadConversationAsMarkdown() {
 
     if (mrEl) {
       let assistantContent = '';
-      const thoughtText = await extractGeminiThought(mrEl);
-      if (thoughtText) {
-        assistantContent += `<details data-type="thought">\n<summary>Thought Process</summary>\n\n${thoughtText}\n\n</details>\n\n`;
-      }
-
       const responseHolder = mrEl.querySelector('message-content .markdown, message-content, .model-response-text') || mrEl;
       const mrText = turndown.turndown(responseHolder).trim();
       if (mrText) {
@@ -175,7 +105,7 @@ async function downloadConversationAsMarkdown() {
         turnCount++;
       }
     }
-  }
+  });
 
   if (turnCount === 0) {
     alert('No conversation turns found to export.');
